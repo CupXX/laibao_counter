@@ -123,45 +123,11 @@ def display_leaderboard():
                     hide_index=True,
                     height=300
                 )
-            
-            # 清空已处理文件列表的按钮
-            if st.button("🗑️ 清空文件列表", help="只清空文件记录，不影响积分数据"):
-                data = st.session_state.data_manager.load_data()
-                data["processed_files"] = {}
-                st.session_state.data_manager.save_data(data)
-                st.success("已清空处理文件列表")
-                st.rerun()
+
         else:
             st.info("还没有处理过任何文件")
         
         st.markdown("---")
-        
-        # 数据统计
-        st.markdown("### 📈 数据统计")
-        
-        # 显示一些统计信息
-        total_participants = len(df)
-        total_score = df['积分'].sum()
-        avg_score = df['积分'].mean()
-        
-        st.metric("总参与人数", total_participants)
-        st.metric("总积分", f"{total_score:.1f}")
-        st.metric("平均积分", f"{avg_score:.1f}")
-        
-        # 积分分布
-        st.markdown("#### 🎯 积分分布")
-        score_ranges = [
-            ("0-10分", len(df[df['积分'] <= 10])),
-            ("11-50分", len(df[(df['积分'] > 10) & (df['积分'] <= 50)])),
-            ("51-100分", len(df[(df['积分'] > 50) & (df['积分'] <= 100)])),
-            ("100分以上", len(df[df['积分'] > 100]))
-        ]
-        
-        for range_name, count in score_ranges:
-            if count > 0:
-                percentage = (count / total_participants) * 100
-                st.write(f"**{range_name}**: {count}人 ({percentage:.1f}%)")
-
 
 def process_uploaded_files(uploaded_files, file_weights=None):
     """处理上传的文件"""
@@ -668,6 +634,7 @@ def main():
                                 
                                 # 临时保存上传的文件
                                 import tempfile
+                                import os
                                 with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as temp_file:
                                     json.dump(backup_data, temp_file, ensure_ascii=False, indent=2)
                                     temp_path = temp_file.name
