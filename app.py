@@ -42,9 +42,6 @@ def display_statistics():
         st.metric("处理文件数", stats['total_files_processed'])
     
     with col3:
-        st.metric("总打卡次数", stats['total_checkins'])
-    
-    with col4:
         if stats['last_updated']:
             last_update = datetime.fromisoformat(stats['last_updated'])
             st.metric("最后更新", last_update.strftime("%m-%d %H:%M"))
@@ -312,6 +309,19 @@ def main():
     
     # 显示统计信息
     display_statistics()
+    st.markdown("---")
+    
+    # 使用说明
+    st.subheader("📖 使用说明")
+    st.markdown("""
+    1. **设置奖励机制**: 在左侧侧边栏，设置基础积分、奖励人数、奖励倍数。
+    2. **导出数据**: 在来豹接龙小程序中，导出数据（不要插入图片！！）。
+    3. **上传Excel文件**:将导出的Excel文件拖到下方，上传打卡数据。（支持多个文件同时上传）
+    4. **设置码数**: 设置每个接龙的码数，默认为1，可自行修改，设置好后点击开始处理按钮，即可自动计算积分。
+    5. **查看排行榜**: 在主页面下方可查看积分排行榜和已处理文件列表。
+    6. **下载数据**: 在左侧侧边栏，点击下载数据，即可备份当前会话的所有处理记录。
+    7. **上传数据**: 再次使用时，点击上传数据，即可上传之前备份的数据，继续编辑。
+    """)
     st.markdown("---")
     
     # 文件上传区域
@@ -647,15 +657,6 @@ def main():
             except Exception as e:
                 st.error(f"❌ 读取文件失败：{str(e)}")
         
-        # 使用说明
-        st.header("📖 使用说明")
-        st.markdown("""
-        1. **上传文件**: 选择包含打卡记录的Excel文件
-        2. **自动识别**: 系统会自动识别昵称列
-        3. **积分统计**: 每个昵称每次打卡记1分
-        4. **查看排行**: 在主页面查看积分排行榜
-        5. **数据持久**: 数据会保存在本地，下次打开依然存在
-        """)
 
 
 if __name__ == "__main__":
