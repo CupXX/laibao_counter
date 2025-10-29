@@ -72,13 +72,95 @@ def display_leaderboard():
         df = df[['nickname', 'score']]
         df.columns = ['昵称', '积分']
     
-    # 显示排行榜
-    st.dataframe(
-        df,
-        use_container_width=True,
-        hide_index=False,
-        height=600
-    )
+    # 使用列布局：左侧排行榜，右侧预留空间
+    col1, col2 = st.columns([1, 1])  # 1:1的比例，各占50%宽度
+    
+    with col1:
+        # 显示排行榜（左侧）
+        st.dataframe(
+            df,
+            use_container_width=True,
+            hide_index=False,
+            height=600
+        )
+    
+    with col2:
+        # 右侧区域：已处理文件列表
+        st.markdown("### 📁 已处理文件")
+        processed_files = st.session_state.data_manager.get_processed_files()
+        
+        if processed_files:
+            # 创建已处理文件的DataFrame
+            processed_df_data = []
+            for file_info in processed_files:
+                processed_date = datetime.fromisoformat(file_info["processed_date"])
+                weight = file_info.get("weight", 1)
+                base_score = file_info.get("base_score", 1.0)
+                total_points = file_info.get("total_points", file_info["nicknames_count"])
+                reward_count = file_info.get("reward_count", 0)
+                reward_multiplier = file_info.get("reward_multiplier", 1.0)
+                rewarded_users = file_info.get("rewarded_users", [])
+                
+                # 构建奖励信息
+                reward_info = ""
+                if reward_count > 0 and len(rewarded_users) > 0:
+                    reward_info = f"前{len(rewarded_users)}名×{reward_multiplier}"
+                
+                processed_df_data.append({
+                    "文件名": file_info["file_name"],
+                    "处理时间": processed_date.strftime("%m-%d %H:%M"),
+                    "昵称数": file_info["nicknames_count"],
+                    "码数": weight,
+                    "奖励": reward_info if reward_info else "-",
+                    "总积分": total_points
+                })
+            
+            if processed_df_data:
+                processed_df = pd.DataFrame(processed_df_data)
+                st.dataframe(
+                    processed_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    height=300
+                )
+            
+            # 清空已处理文件列表的按钮
+            if st.button("🗑️ 清空文件列表", help="只清空文件记录，不影响积分数据"):
+                data = st.session_state.data_manager.load_data()
+                data["processed_files"] = {}
+                st.session_state.data_manager.save_data(data)
+                st.success("已清空处理文件列表")
+                st.rerun()
+        else:
+            st.info("还没有处理过任何文件")
+        
+        st.markdown("---")
+        
+        # 数据统计
+        st.markdown("### 📈 数据统计")
+        
+        # 显示一些统计信息
+        total_participants = len(df)
+        total_score = df['积分'].sum()
+        avg_score = df['积分'].mean()
+        
+        st.metric("总参与人数", total_participants)
+        st.metric("总积分", f"{total_score:.1f}")
+        st.metric("平均积分", f"{avg_score:.1f}")
+        
+        # 积分分布
+        st.markdown("#### 🎯 积分分布")
+        score_ranges = [
+            ("0-10分", len(df[df['积分'] <= 10])),
+            ("11-50分", len(df[(df['积分'] > 10) & (df['积分'] <= 50)])),
+            ("51-100分", len(df[(df['积分'] > 50) & (df['积分'] <= 100)])),
+            ("100分以上", len(df[df['积分'] > 100]))
+        ]
+        
+        for range_name, count in score_ranges:
+            if count > 0:
+                percentage = (count / total_participants) * 100
+                st.write(f"**{range_name}**: {count}人 ({percentage:.1f}%)")
 
 
 def process_uploaded_files(uploaded_files, file_weights=None):
@@ -432,59 +514,6 @@ def main():
             st.success(f"🎯 奖励已启用：前 {reward_count} 名获得 {reward_multiplier}x 倍数")
         else:
             st.info("💡 奖励未启用（奖励人数为0）")
-        
-        st.markdown("---")
-        
-        # 显示已处理文件
-        st.subheader("📁 已处理文件")
-        processed_files = st.session_state.data_manager.get_processed_files()
-        
-        if processed_files:
-            with st.expander(f"查看所有已处理文件 ({len(processed_files)} 个)", expanded=False):
-                # 创建已处理文件的DataFrame
-                processed_df_data = []
-                for file_info in processed_files:
-                    processed_date = datetime.fromisoformat(file_info["processed_date"])
-                    weight = file_info.get("weight", 1)
-                    base_score = file_info.get("base_score", 1.0)
-                    total_points = file_info.get("total_points", file_info["nicknames_count"])
-                    reward_count = file_info.get("reward_count", 0)
-                    reward_multiplier = file_info.get("reward_multiplier", 1.0)
-                    rewarded_users = file_info.get("rewarded_users", [])
-                    
-                    # 构建奖励信息
-                    reward_info = ""
-                    if reward_count > 0 and len(rewarded_users) > 0:
-                        reward_info = f"前{len(rewarded_users)}名×{reward_multiplier}"
-                    
-                    processed_df_data.append({
-                        "文件名": file_info["file_name"],
-                        "处理时间": processed_date.strftime("%m-%d %H:%M"),
-                        "昵称数": file_info["nicknames_count"],
-                        "基础积分": base_score,
-                        "码数": weight,
-                        "奖励": reward_info if reward_info else "-",
-                        "总积分": total_points
-                    })
-                
-                if processed_df_data:
-                    processed_df = pd.DataFrame(processed_df_data)
-                    st.dataframe(
-                        processed_df,
-                        use_container_width=True,
-                        hide_index=True,
-                        height=300
-                    )
-                
-                # 清空已处理文件列表的按钮
-                if st.button("🗑️ 清空已处理文件列表", help="只清空文件记录，不影响积分数据"):
-                    data = st.session_state.data_manager.load_data()
-                    data["processed_files"] = {}
-                    st.session_state.data_manager.save_data(data)
-                    st.success("已清空处理文件列表")
-                    st.rerun()
-        else:
-            st.info("还没有处理过任何文件")
         
         st.markdown("---")
         
