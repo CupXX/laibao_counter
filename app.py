@@ -556,6 +556,25 @@ def main():
                     except Exception as e:
                         st.error(f"导出数据失败: {str(e)}")
 
+        if st.button("📁 下载我的数据", help="下载当前会话的所有积分记录"):
+            try:
+                # 导出用户数据
+                user_data = st.session_state.data_manager.export_user_data()
+                
+                # 创建下载文件名
+                download_filename = f"我的打卡统计_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                
+                st.download_button(
+                    label="📁 点击下载",
+                    data=user_data,
+                    file_name=download_filename,
+                    mime="application/json",
+                    help="下载JSON格式的积分数据"
+                )
+                
+            except Exception as e:
+                st.error(f"导出数据失败: {str(e)}")
+
         # 数据上传功能
         st.subheader("📤 上传数据")
         st.info("💡 支持上传之前导出的JSON格式备份文件")
@@ -646,20 +665,6 @@ def main():
                 st.error("❌ 文件格式错误，请确保是有效的JSON格式")
             except Exception as e:
                 st.error(f"❌ 读取文件失败：{str(e)}")
-        
-        
-        
-        st.markdown("---")
-        
-        # 显示会话信息
-        st.subheader("👤 会话信息")
-        st.info(f"会话ID: {st.session_state.user_session_id[:12]}...")
-        st.caption("每次打开网页都会创建新的独立会话，您的数据只属于您自己")
-        
-        st.markdown("---")
-        
-        # 显示数据存储说明
-        st.info("💡 数据存储说明：\n- 每个用户拥有独立的数据空间\n- 数据在云端临时保存24小时\n- 请及时下载备份您的数据")
         
         # 使用说明
         st.header("📖 使用说明")
