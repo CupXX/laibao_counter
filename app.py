@@ -494,18 +494,13 @@ def main():
         # 数据管理功能
         st.header("💾 数据管理")
         
-        # 数据备份功能
-        st.subheader("💾 备份数据")
-        
         if st.button("📦 创建数据备份", help="备份当前所有数据到文件"):
             try:
                 backup_file = st.session_state.data_manager.backup_data()
                 st.success(f"✅ 数据备份成功！\n备份文件：{backup_file}")
             except Exception as e:
                 st.error(f"❌ 备份失败：{str(e)}")
-        
-        st.markdown("---")
-        
+
         # 数据导入功能
         st.subheader("📁 导入数据")
         
@@ -669,11 +664,6 @@ def main():
                 except Exception as e:
                     st.error(f"❌ 读取文件失败：{str(e)}")
         
-        st.markdown("---")
-        
-        # 危险操作
-        st.subheader("⚠️ 清空数据")
-        
         if st.button("🗑️ 清空所有数据", type="secondary", help="此操作将清空所有积分记录，请谨慎操作"):
             # 显示确认对话框
             if 'show_clear_confirm' not in st.session_state:
@@ -720,11 +710,6 @@ def main():
                 if st.button("❌ 取消操作"):
                     st.session_state.show_clear_confirm = False
                     st.rerun()
-        
-        st.markdown("---")
-        
-        # 用户数据导出
-        st.subheader("📤 导出我的数据")
         
         if st.button("📥 下载我的数据", help="下载当前会话的所有积分记录"):
             try:

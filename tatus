@@ -1,0 +1,48 @@
+[1mdiff --git a/app.py b/app.py[m
+[1mindex eb8beba..7c8d926 100644[m
+[1m--- a/app.py[m
+[1m+++ b/app.py[m
+[36m@@ -494,18 +494,13 @@[m [mdef main():[m
+         # 数据管理功能[m
+         st.header("💾 数据管理")[m
+         [m
+[31m-        # 数据备份功能[m
+[31m-        st.subheader("💾 备份数据")[m
+[31m-        [m
+         if st.button("📦 创建数据备份", help="备份当前所有数据到文件"):[m
+             try:[m
+                 backup_file = st.session_state.data_manager.backup_data()[m
+                 st.success(f"✅ 数据备份成功！\n备份文件：{backup_file}")[m
+             except Exception as e:[m
+                 st.error(f"❌ 备份失败：{str(e)}")[m
+[31m-        [m
+[31m-        st.markdown("---")[m
+[31m-        [m
+[32m+[m
+         # 数据导入功能[m
+         st.subheader("📁 导入数据")[m
+         [m
+[36m@@ -669,11 +664,6 @@[m [mdef main():[m
+                 except Exception as e:[m
+                     st.error(f"❌ 读取文件失败：{str(e)}")[m
+         [m
+[31m-        st.markdown("---")[m
+[31m-        [m
+[31m-        # 危险操作[m
+[31m-        st.subheader("⚠️ 清空数据")[m
+[31m-        [m
+         if st.button("🗑️ 清空所有数据", type="secondary", help="此操作将清空所有积分记录，请谨慎操作"):[m
+             # 显示确认对话框[m
+             if 'show_clear_confirm' not in st.session_state:[m
+[36m@@ -721,11 +711,6 @@[m [mdef main():[m
+                     st.session_state.show_clear_confirm = False[m
+                     st.rerun()[m
+         [m
+[31m-        st.markdown("---")[m
+[31m-        [m
+[31m-        # 用户数据导出[m
+[31m-        st.subheader("📤 导出我的数据")[m
+[31m-        [m
+         if st.button("📥 下载我的数据", help="下载当前会话的所有积分记录"):[m
+             try:[m
+                 # 导出用户数据[m
