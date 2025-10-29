@@ -615,47 +615,36 @@ def main():
                                     st.metric("最后更新", last_update.strftime('%m-%d %H:%M'))
                                 except:
                                     st.metric("最后更新", "格式错误")
-                        
-                        # 显示详细信息
-                        if backup_data.get('records'):
-                            records_sample = list(backup_data['records'].keys())[:5]
-                            st.write(f"**用户样例**：{', '.join(records_sample)}")
-                            if len(backup_data['records']) > 5:
-                                st.write(f"...等共 {len(backup_data['records'])} 个用户")
                     
                     # 导入按钮
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        if st.button("📥 导入上传数据", type="primary", key="import_upload"):
-                            try:
-                                # 导入前先备份当前数据
-                                current_backup = st.session_state.data_manager.backup_data()
-                                st.info(f"当前数据已备份到: {current_backup}")
+                    if st.button("📥 导入上传数据", type="primary", key="import_upload"):
+                        try:
+                            # 导入前先备份当前数据
+                            current_backup = st.session_state.data_manager.backup_data()
+                            st.info(f"当前数据已备份到: {current_backup}")
+                            
+                            # 临时保存上传的文件
+                            import tempfile
+                            import os
+                            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as temp_file:
+                                json.dump(backup_data, temp_file, ensure_ascii=False, indent=2)
+                                temp_path = temp_file.name
+                            
+                            # 执行导入
+                            if st.session_state.data_manager.import_data(temp_path):
+                                st.success("🎉 数据导入成功！页面将自动刷新...")
+                                # 清理临时文件
+                                os.unlink(temp_path)
+                                # 清空上传文件状态，重置上传模块
+                                if 'backup_uploader' in st.session_state:
+                                    del st.session_state['backup_uploader']
+                                st.rerun()
+                            else:
+                                st.error("❌ 数据导入失败")
+                                os.unlink(temp_path)
                                 
-                                # 临时保存上传的文件
-                                import tempfile
-                                import os
-                                with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as temp_file:
-                                    json.dump(backup_data, temp_file, ensure_ascii=False, indent=2)
-                                    temp_path = temp_file.name
-                                
-                                # 执行导入
-                                if st.session_state.data_manager.import_data(temp_path):
-                                    st.success("🎉 数据导入成功！页面将自动刷新...")
-                                    # 清理临时文件
-                                    os.unlink(temp_path)
-                                    st.rerun()
-                                else:
-                                    st.error("❌ 数据导入失败")
-                                    os.unlink(temp_path)
-                                    
-                            except Exception as e:
-                                st.error(f"❌ 导入过程出错：{str(e)}")
-                    
-                    with col2:
-                        # 清空上传文件
-                        if st.button("🗑️ 清空选择", key="clear_upload"):
-                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ 导入过程出错：{str(e)}")
                     
             except json.JSONDecodeError:
                 st.error("❌ 文件格式错误，请确保是有效的JSON格式")
