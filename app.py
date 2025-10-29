@@ -86,7 +86,6 @@ def display_leaderboard():
     
     with col2:
         # 右侧区域：已处理文件列表
-        st.markdown("### 📁 已处理文件")
         processed_files = st.session_state.data_manager.get_processed_files()
         
         if processed_files:
@@ -117,17 +116,29 @@ def display_leaderboard():
             
             if processed_df_data:
                 processed_df = pd.DataFrame(processed_df_data)
+                # 使用与左侧相同的高度，让两个表格对齐
                 st.dataframe(
                     processed_df,
                     use_container_width=True,
                     hide_index=True,
-                    height=300
+                    height=600
                 )
-
         else:
-            st.info("还没有处理过任何文件")
-        
-        st.markdown("---")
+            # 如果没有文件，显示一个占位的dataframe来保持对齐
+            empty_df = pd.DataFrame({
+                "文件名": ["暂无文件"],
+                "处理时间": [""],
+                "昵称数": [""],
+                "码数": [""],
+                "奖励": [""],
+                "总积分": [""]
+            })
+            st.dataframe(
+                empty_df,
+                use_container_width=True,
+                hide_index=True,
+                height=600
+            )
 
 def process_uploaded_files(uploaded_files, file_weights=None):
     """处理上传的文件"""
@@ -420,6 +431,9 @@ def main():
             st.session_state.files_processed = True
             # 重置文件上传器
             st.session_state.uploaded_files_key += 1
+            # 清理导入数据的session state，防止重新显示
+            if 'backup_uploader' in st.session_state:
+                del st.session_state['backup_uploader']
             st.rerun()
     
     st.markdown("---")
