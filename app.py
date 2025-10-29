@@ -1,0 +1,681 @@
+"""
+打卡记录统计工具 - Streamlit主应用
+"""
+import streamlit as st
+import pandas as pd
+from data_manager import DataManager
+from excel_processor import ExcelProcessor
+from datetime import datetime
+import io
+
+
+def init_session_state():
+    """初始化会话状态"""
+    # 为每个用户会话生成唯一ID
+    if 'user_session_id' not in st.session_state:
+        st.session_state.user_session_id = None
+    
+    # 创建基于会话ID的数据管理器
+    if 'data_manager' not in st.session_state:
+        st.session_state.data_manager = DataManager(session_id=st.session_state.user_session_id)
+        st.session_state.user_session_id = st.session_state.data_manager.get_session_id()
+        
+    if 'excel_processor' not in st.session_state:
+        st.session_state.excel_processor = ExcelProcessor()
+    
+    # 在页面加载时清理过期会话（24小时后过期）
+    if 'cleanup_done' not in st.session_state:
+        DataManager.cleanup_old_sessions(max_age_hours=24)
+        st.session_state.cleanup_done = True
+
+
+def display_statistics():
+    """显示统计信息"""
+    stats = st.session_state.data_manager.get_statistics()
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("总参与人数", stats['total_participants'])
+    
+    with col2:
+        st.metric("处理文件数", stats['total_files_processed'])
+    
+    with col3:
+        st.metric("总打卡次数", stats['total_checkins'])
+    
+    with col4:
+        if stats['last_updated']:
+            last_update = datetime.fromisoformat(stats['last_updated'])
+            st.metric("最后更新", last_update.strftime("%m-%d %H:%M"))
+
+
+def display_leaderboard():
+    """显示积分排行榜"""
+    st.subheader("📊 积分排行榜")
+    
+    leaderboard = st.session_state.data_manager.get_leaderboard()
+    
+    if not leaderboard:
+        st.info("还没有积分记录，请先上传Excel文件。")
+        return
+    
+    # 创建排行榜DataFrame
+    df = pd.DataFrame(leaderboard)
+    df.index = range(1, len(df) + 1)  # 从1开始的排名
+    
+    # 添加参与接龙次数（纯计数，不考虑权重和奖励）
+    if 'participation_count' in df.columns:
+        df = df[['nickname', 'score', 'participation_count']]
+        df.columns = ['昵称', '积分', '参与接龙次数']
+    else:
+        df = df[['nickname', 'score']]
+        df.columns = ['昵称', '积分']
+    
+    # 显示排行榜
+    st.dataframe(
+        df,
+        use_container_width=True,
+        hide_index=False,
+        height=600
+    )
+
+
+def process_uploaded_files(uploaded_files, file_weights=None):
+    """处理上传的文件"""
+    if not uploaded_files:
+        return
+    
+    if file_weights is None:
+        file_weights = {file.name: 1 for file in uploaded_files}
+    
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    total_files = len(uploaded_files)
+    new_files_count = 0
+    old_files_count = 0
+    updated_files_count = 0
+    successful_count = 0
+    total_new_nicknames = 0
+    total_weighted_points = 0
+    
+    for i, uploaded_file in enumerate(uploaded_files):
+        progress = (i + 1) / total_files
+        progress_bar.progress(progress)
+        status_text.text(f"正在处理: {uploaded_file.name} ({i+1}/{total_files})")
+        
+        # 检查是否已经处理过，以及码数是否有变化
+        is_processed = st.session_state.data_manager.is_file_processed(uploaded_file.name)
+        if is_processed:
+            # 获取文件的当前码数和历史码数
+            current_weight = file_weights.get(uploaded_file.name, 1)
+            processed_files = st.session_state.data_manager.get_processed_files()
+            historical_weight = 1
+            for pf in processed_files:
+                if pf['file_name'] == uploaded_file.name:
+                    historical_weight = pf.get('weight', 1)
+                    break
+            
+            # 如果码数没有变化，跳过处理
+            if current_weight == historical_weight:
+                old_files_count += 1
+                st.info(f"⏭️ {uploaded_file.name} - 已处理过，码数未变化，跳过")
+                continue
+            else:
+                # 码数有变化，需要重新处理
+                st.info(f"🔄 {uploaded_file.name} - 码数从 {historical_weight} 更新为 {current_weight}，重新计算积分")
+                updated_files_count += 1
+        
+        # 验证文件格式
+        if not st.session_state.excel_processor.validate_file_format(uploaded_file.name):
+            st.error(f"不支持的文件格式: {uploaded_file.name}")
+            continue
+        
+        # 处理文件，提取昵称和时间
+        nicknames, times, error_msg = st.session_state.excel_processor.extract_nicknames_and_times_from_file(
+            uploaded_file, uploaded_file.name
+        )
+        
+        if error_msg:
+            st.error(f"处理文件 {uploaded_file.name} 时出错: {error_msg}")
+            continue
+        
+        if nicknames:
+            # 获取该文件的码数
+            weight = file_weights.get(uploaded_file.name, 1)
+            
+            # 判断是新文件还是更新文件
+            is_update = st.session_state.data_manager.is_file_processed(uploaded_file.name)
+            
+            # 获取奖励设置
+            base_score = st.session_state.get('base_score', 1.0)
+            reward_count = st.session_state.get('reward_count', 0)
+            reward_multiplier = st.session_state.get('reward_multiplier', 1.5)
+            
+            if is_update:
+                # 更新已处理文件的积分
+                st.session_state.data_manager.update_existing_file_scores(nicknames, uploaded_file.name, weight)
+                rewarded_count = 0  # 更新功能暂不支持奖励重新计算
+            else:
+                # 新文件，使用新的积分计算和奖励机制
+                rewarded_count = st.session_state.data_manager.update_scores_with_rewards(
+                    nicknames, times, uploaded_file.name, weight, 
+                    base_score, reward_count, reward_multiplier
+                )
+                new_files_count += 1
+            
+            successful_count += 1
+            total_new_nicknames += len(nicknames)
+            total_weighted_points += len(nicknames) * weight
+            
+            # 显示文件处理结果
+            weight_info = f" (码数: {weight})" if weight != 1 else ""
+            basic_score = base_score * weight
+            with st.expander(f"✅ {uploaded_file.name} - 提取了 {len(nicknames)} 个昵称{weight_info}"):
+                st.write("提取的昵称:")
+                nickname_df = pd.DataFrame({"昵称": nicknames})
+                st.dataframe(nickname_df, hide_index=True, height=300)
+                
+                # 显示积分计算信息
+                st.info(f"💰 基础积分: {base_score} × 码数: {weight} = {basic_score} 分/人")
+                if rewarded_count > 0:
+                    reward_score = reward_multiplier * basic_score
+                    st.success(f"🏆 前 {rewarded_count} 名获得奖励: {reward_score} 分/人 (奖励倍数: {reward_multiplier}x)")
+                    total_points = (len(nicknames) - rewarded_count) * basic_score + rewarded_count * reward_score
+                    st.info(f"📊 本文件总积分: {total_points} 分")
+                else:
+                    total_points = len(nicknames) * basic_score
+                    st.info(f"📊 本文件总积分: {total_points} 分")
+        else:
+            st.warning(f"文件 {uploaded_file.name} 中没有找到有效的昵称数据")
+    
+    progress_bar.empty()
+    status_text.empty()
+    
+    # 显示处理结果摘要
+    if new_files_count > 0 or old_files_count > 0 or updated_files_count > 0:
+        result_msg = []
+        if new_files_count > 0:
+            result_msg.append(f"✅ 处理了 {new_files_count} 个新文件")
+        if updated_files_count > 0:
+            result_msg.append(f"🔄 更新了 {updated_files_count} 个文件的码数")
+        if old_files_count > 0:
+            result_msg.append(f"⏭️ 跳过了 {old_files_count} 个未变化的文件")
+        if total_new_nicknames > 0:
+            result_msg.append(f"处理了 {total_new_nicknames} 个昵称记录")
+        if total_weighted_points > total_new_nicknames:
+            result_msg.append(f"加权后共产生 {total_weighted_points} 积分")
+        
+        if new_files_count > 0 or updated_files_count > 0:
+            st.success(" | ".join(result_msg))
+            # 不在这里rerun，让main函数控制
+        else:
+            st.info(" | ".join(result_msg))
+    else:
+        st.error("没有成功处理任何文件")
+
+
+def main():
+    """主函数"""
+    st.set_page_config(
+        page_title="打卡记录统计工具",
+        page_icon="📊",
+        layout="wide"
+    )
+    
+    # 添加CSS隐藏默认文件上传组件的文件列表
+    st.markdown("""
+    <style>
+    .uploadedFile {
+        display: none !important;
+    }
+    .uploadedFileName {
+        display: none !important;
+    }
+    div[data-testid="stFileUploaderDropzone"] div[data-testid="stMarkdownContainer"] {
+        display: none !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    init_session_state()
+    
+    # 初始化文件处理状态
+    if 'files_processed' not in st.session_state:
+        st.session_state.files_processed = False
+    if 'uploaded_files_key' not in st.session_state:
+        st.session_state.uploaded_files_key = 0
+    
+    # 页面标题
+    st.title("📊 打卡记录统计工具")
+    st.markdown("### 🏠 欢迎使用个人专属统计空间")
+    st.info("🔒 **隐私保护**：每个用户拥有完全独立的数据空间，您的数据只有您自己能看到！")
+    st.markdown("---")
+    
+    # 显示统计信息
+    display_statistics()
+    st.markdown("---")
+    
+    # 文件上传区域
+    st.subheader("📤 上传Excel文件")
+    
+    # 使用key来控制文件上传器的重置
+    uploaded_files = st.file_uploader(
+        "选择Excel文件 (支持 .xlsx 和 .xls 格式)",
+        accept_multiple_files=True,
+        type=['xlsx', 'xls'],
+        help="可以同时上传多个Excel文件进行批量处理",
+        key=f"file_uploader_{st.session_state.uploaded_files_key}"
+    )
+    
+    # 重置文件处理状态
+    if not uploaded_files:
+        st.session_state.files_processed = False
+    
+    # 如果有上传的文件，显示自定义的完整文件列表
+    if uploaded_files and not st.session_state.files_processed:
+        st.subheader(f"📋 已选择 {len(uploaded_files)} 个文件")
+        
+        # 创建文件列表的DataFrame来更好地显示
+        file_info = []
+        new_file_count = 0
+        old_file_count = 0
+        
+        for i, file in enumerate(uploaded_files, 1):
+            file_size = len(file.getvalue()) / 1024  # 转换为KB
+            is_processed = st.session_state.data_manager.is_file_processed(file.name)
+            
+            if is_processed:
+                old_file_count += 1
+                status = "🔄 已处理"
+                # 获取已处理文件的历史码数
+                processed_files = st.session_state.data_manager.get_processed_files()
+                historical_weight = 1
+                for pf in processed_files:
+                    if pf['file_name'] == file.name:
+                        historical_weight = pf.get('weight', 1)
+                        break
+                default_weight = historical_weight
+            else:
+                new_file_count += 1
+                status = "🆕 新文件"
+                default_weight = 1
+                
+            file_info.append({
+                "序号": i,
+                "文件名": file.name,
+                "大小": f"{file_size:.1f} KB",
+                "状态": status,
+                "码数": default_weight
+            })
+        
+        file_df = pd.DataFrame(file_info)
+        
+        # 使用可编辑的数据表格，让用户能修改码数
+        st.write("💡 提示：")
+        st.write("- 🆕 新文件：设置积分倍数，将被处理")
+        st.write("- 🔄 已处理文件：可修改码数，如有变化将重新计算积分")
+        
+        edited_df = st.data_editor(
+            file_df,
+            use_container_width=True,
+            hide_index=True,
+            height=min(400, len(uploaded_files) * 35 + 50),
+            column_config={
+                "序号": st.column_config.NumberColumn(
+                    "序号",
+                    disabled=True,
+                    width="small"
+                ),
+                "文件名": st.column_config.TextColumn(
+                    "文件名",
+                    disabled=True,
+                    width="large"
+                ),
+                "大小": st.column_config.TextColumn(
+                    "大小",
+                    disabled=True,
+                    width="small"
+                ),
+                "状态": st.column_config.TextColumn(
+                    "状态",
+                    disabled=True,
+                    width="small"
+                ),
+                "码数": st.column_config.NumberColumn(
+                    "码数",
+                    help="积分倍数，必须是正整数",
+                    min_value=1,
+                    max_value=100,
+                    step=1,
+                    format="%d",
+                    width="small"
+                )
+            },
+            disabled=["序号", "文件名", "大小", "状态"]
+        )
+        
+        # 显示统计信息
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("新文件", new_file_count)
+        with col2:
+            st.metric("已处理", old_file_count)
+        with col3:
+            st.metric("总计", len(uploaded_files))
+        
+        if st.button("🚀 开始处理", type="primary"):
+            # 创建文件和码数的映射
+            file_weights = {}
+            for _, row in edited_df.iterrows():
+                file_weights[row["文件名"]] = int(row["码数"])
+            
+            process_uploaded_files(uploaded_files, file_weights)
+            st.session_state.files_processed = True
+            # 重置文件上传器
+            st.session_state.uploaded_files_key += 1
+            st.rerun()
+    
+    st.markdown("---")
+    
+    # 显示排行榜
+    display_leaderboard()
+    
+    # 侧边栏 - 设置和管理功能
+    with st.sidebar:
+        # 设置奖励机制
+        st.header("🏆 设置奖励")
+        
+        # 初始化奖励设置的session state
+        if 'base_score' not in st.session_state:
+            st.session_state.base_score = 1
+        if 'reward_count' not in st.session_state:
+            st.session_state.reward_count = 0  
+        if 'reward_multiplier' not in st.session_state:
+            st.session_state.reward_multiplier = 1.5
+        
+        # 基础积分设置
+        base_score = st.number_input(
+            "基础积分",
+            min_value=0.1,
+            max_value=100.0,
+            value=float(st.session_state.base_score),
+            step=0.1,
+            format="%.1f",
+            help="用于计算积分的基础值"
+        )
+        st.session_state.base_score = base_score
+        
+        # 奖励人数设置
+        reward_count = st.number_input(
+            "奖励人数",
+            min_value=0,
+            max_value=100,
+            value=st.session_state.reward_count,
+            step=1,
+            help="排行榜前几名获得奖励倍数（0表示不启用奖励）"
+        )
+        st.session_state.reward_count = reward_count
+        
+        # 奖励倍数设置
+        reward_multiplier = st.number_input(
+            "奖励倍数", 
+            min_value=1.0,
+            max_value=10.0,
+            value=st.session_state.reward_multiplier,
+            step=0.1,
+            format="%.1f",
+            help="前N名用户的积分乘以此倍数"
+        )
+        st.session_state.reward_multiplier = reward_multiplier
+        
+        # 显示当前奖励设置状态
+        if reward_count > 0:
+            st.success(f"🎯 奖励已启用：前 {reward_count} 名获得 {reward_multiplier}x 倍数")
+        else:
+            st.info("💡 奖励未启用（奖励人数为0）")
+        
+        st.markdown("---")
+        
+        # 显示已处理文件
+        st.subheader("📁 已处理文件")
+        processed_files = st.session_state.data_manager.get_processed_files()
+        
+        if processed_files:
+            with st.expander(f"查看所有已处理文件 ({len(processed_files)} 个)", expanded=False):
+                # 创建已处理文件的DataFrame
+                processed_df_data = []
+                for file_info in processed_files:
+                    processed_date = datetime.fromisoformat(file_info["processed_date"])
+                    weight = file_info.get("weight", 1)
+                    base_score = file_info.get("base_score", 1.0)
+                    total_points = file_info.get("total_points", file_info["nicknames_count"])
+                    reward_count = file_info.get("reward_count", 0)
+                    reward_multiplier = file_info.get("reward_multiplier", 1.0)
+                    rewarded_users = file_info.get("rewarded_users", [])
+                    
+                    # 构建奖励信息
+                    reward_info = ""
+                    if reward_count > 0 and len(rewarded_users) > 0:
+                        reward_info = f"前{len(rewarded_users)}名×{reward_multiplier}"
+                    
+                    processed_df_data.append({
+                        "文件名": file_info["file_name"],
+                        "处理时间": processed_date.strftime("%m-%d %H:%M"),
+                        "昵称数": file_info["nicknames_count"],
+                        "基础积分": base_score,
+                        "码数": weight,
+                        "奖励": reward_info if reward_info else "-",
+                        "总积分": total_points
+                    })
+                
+                if processed_df_data:
+                    processed_df = pd.DataFrame(processed_df_data)
+                    st.dataframe(
+                        processed_df,
+                        use_container_width=True,
+                        hide_index=True,
+                        height=300
+                    )
+                
+                # 清空已处理文件列表的按钮
+                if st.button("🗑️ 清空已处理文件列表", help="只清空文件记录，不影响积分数据"):
+                    data = st.session_state.data_manager.load_data()
+                    data["processed_files"] = {}
+                    st.session_state.data_manager.save_data(data)
+                    st.success("已清空处理文件列表")
+                    st.rerun()
+        else:
+            st.info("还没有处理过任何文件")
+        
+        st.markdown("---")
+        
+        # 数据管理功能
+        st.header("💾 数据管理")
+        
+        # 数据备份功能
+        st.subheader("💾 备份数据")
+        
+        if st.button("📦 创建数据备份", help="备份当前所有数据到文件"):
+            try:
+                backup_file = st.session_state.data_manager.backup_data()
+                st.success(f"✅ 数据备份成功！\n备份文件：{backup_file}")
+            except Exception as e:
+                st.error(f"❌ 备份失败：{str(e)}")
+        
+        st.markdown("---")
+        
+        # 数据导入功能
+        st.subheader("📁 导入数据")
+        
+        # 获取data目录下的备份文件
+        import os
+        data_folder = "data"
+        backup_files = []
+        if os.path.exists(data_folder):
+            backup_files = [f for f in os.listdir(data_folder) if f.startswith("backup_") and f.endswith(".json")]
+            backup_files.sort(reverse=True)  # 按时间倒序排列，最新的在前面
+        
+        if backup_files:
+            selected_backup = st.selectbox(
+                "选择要导入的备份文件",
+                options=backup_files,
+                help="选择一个备份文件来恢复数据。最新的备份文件显示在前面。"
+            )
+            
+            if selected_backup:
+                backup_path = os.path.join(data_folder, selected_backup)
+                
+                # 显示备份文件信息
+                try:
+                    backup_time = selected_backup.replace("backup_", "").replace(".json", "")
+                    formatted_time = f"{backup_time[:4]}-{backup_time[4:6]}-{backup_time[6:8]} {backup_time[9:11]}:{backup_time[11:13]}:{backup_time[13:15]}"
+                    st.info(f"备份时间: {formatted_time}")
+                except:
+                    pass
+                
+                # 验证文件
+                is_valid, message = st.session_state.data_manager.validate_backup_file(backup_path)
+                if is_valid:
+                    st.success(f"✅ {message}")
+                    
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if st.button("📥 导入数据", type="primary"):
+                            # 导入前先备份当前数据
+                            current_backup = st.session_state.data_manager.backup_data()
+                            st.info(f"当前数据已备份到: {current_backup}")
+                            
+                            # 执行导入
+                            if st.session_state.data_manager.import_data(backup_path):
+                                st.success("🎉 数据导入成功！页面将自动刷新...")
+                                st.rerun()
+                            else:
+                                st.error("❌ 数据导入失败，请检查文件格式")
+                    
+                    with col2:
+                        if st.button("🔍 预览数据"):
+                            # 预览备份文件内容
+                            with open(backup_path, 'r', encoding='utf-8') as f:
+                                import json
+                                preview_data = json.load(f)
+                                
+                            st.write("**数据概览:**")
+                            st.write(f"- 参与人数: {len(preview_data.get('records', {}))}")
+                            st.write(f"- 处理文件数: {preview_data.get('total_files_processed', 0)}")
+                            st.write(f"- 已处理文件数: {len(preview_data.get('processed_files', {}))}")
+                            if preview_data.get('last_updated'):
+                                last_update = datetime.fromisoformat(preview_data['last_updated'])
+                                st.write(f"- 最后更新: {last_update.strftime('%Y-%m-%d %H:%M:%S')}")
+                else:
+                    st.error(f"❌ {message}")
+        else:
+            st.info("📁 当前没有可用的备份文件")
+        
+        st.markdown("---")
+        
+        # 危险操作
+        st.subheader("⚠️ 清空数据")
+        
+        if st.button("🗑️ 清空所有数据", type="secondary", help="此操作将清空所有积分记录，请谨慎操作"):
+            # 显示确认对话框
+            if 'show_clear_confirm' not in st.session_state:
+                st.session_state.show_clear_confirm = False
+            
+            st.session_state.show_clear_confirm = True
+        
+        # 确认对话框
+        if st.session_state.get('show_clear_confirm', False):
+            st.error("⚠️ 确认要清空所有数据吗？此操作无法恢复！")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("✅ 确认清空", type="primary"):
+                    try:
+                        # 清空数据
+                        import os
+                        data_file = "data/records.json"
+                        if os.path.exists(data_file):
+                            # 先备份
+                            backup_file = st.session_state.data_manager.backup_data()
+                            st.info(f"已自动备份到: {backup_file}")
+                            
+                            # 清空数据
+                            empty_data = {
+                                "records": {},
+                                "processed_files": {},  # 也清空已处理文件记录
+                                "last_updated": datetime.now().isoformat(),
+                                "total_files_processed": 0
+                            }
+                            st.session_state.data_manager.save_data(empty_data)
+                            
+                            st.success("✅ 所有数据已清空！")
+                            st.session_state.show_clear_confirm = False
+                            st.rerun()
+                        else:
+                            st.warning("没有数据需要清空")
+                            st.session_state.show_clear_confirm = False
+                    except Exception as e:
+                        st.error(f"清空数据失败: {str(e)}")
+                        st.session_state.show_clear_confirm = False
+            
+            with col2:
+                if st.button("❌ 取消操作"):
+                    st.session_state.show_clear_confirm = False
+                    st.rerun()
+        
+        st.markdown("---")
+        
+        # 用户数据导出
+        st.subheader("📤 导出我的数据")
+        
+        if st.button("📥 下载我的数据", help="下载当前会话的所有积分记录"):
+            try:
+                # 导出用户数据
+                user_data = st.session_state.data_manager.export_user_data()
+                
+                # 创建下载文件名
+                download_filename = f"我的打卡统计_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                
+                st.download_button(
+                    label="📁 点击下载",
+                    data=user_data,
+                    file_name=download_filename,
+                    mime="application/json",
+                    help="下载JSON格式的积分数据"
+                )
+                
+            except Exception as e:
+                st.error(f"导出数据失败: {str(e)}")
+        
+        st.markdown("---")
+        
+        # 显示会话信息
+        st.subheader("👤 会话信息")
+        st.info(f"会话ID: {st.session_state.user_session_id[:12]}...")
+        st.caption("每次打开网页都会创建新的独立会话，您的数据只属于您自己")
+        
+        st.markdown("---")
+        
+        # 显示数据存储说明
+        st.info("💡 数据存储说明：\n- 每个用户拥有独立的数据空间\n- 数据在云端临时保存24小时\n- 请及时下载备份您的数据")
+        
+        # 使用说明
+        st.header("📖 使用说明")
+        st.markdown("""
+        1. **上传文件**: 选择包含打卡记录的Excel文件
+        2. **自动识别**: 系统会自动识别昵称列
+        3. **积分统计**: 每个昵称每次打卡记1分
+        4. **查看排行**: 在主页面查看积分排行榜
+        5. **数据持久**: 数据会保存在本地，下次打开依然存在
+        
+        **支持的昵称列名**:
+        - 昵称、姓名、用户名、名字
+        - 微信昵称、群昵称、参与者
+        - name、nickname等
+        """)
+
+
+if __name__ == "__main__":
+    main()
