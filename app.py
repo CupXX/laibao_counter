@@ -517,61 +517,157 @@ def main():
             backup_files = [f for f in os.listdir(data_folder) if f.startswith("backup_") and f.endswith(".json")]
             backup_files.sort(reverse=True)  # 按时间倒序排列，最新的在前面
         
-        if backup_files:
-            selected_backup = st.selectbox(
-                "选择要导入的备份文件",
-                options=backup_files,
-                help="选择一个备份文件来恢复数据。最新的备份文件显示在前面。"
+        # 选项卡：本地备份文件 和 手动上传
+        tab1, tab2 = st.tabs(["📂 本地备份文件", "📤 上传备份文件"])
+        
+        with tab1:
+            if backup_files:
+                selected_backup = st.selectbox(
+                    "选择要导入的备份文件",
+                    options=backup_files,
+                    help="选择一个备份文件来恢复数据。最新的备份文件显示在前面。"
+                )
+                
+                if selected_backup:
+                    backup_path = os.path.join(data_folder, selected_backup)
+                    
+                    # 显示备份文件信息
+                    try:
+                        backup_time = selected_backup.replace("backup_", "").replace(".json", "")
+                        formatted_time = f"{backup_time[:4]}-{backup_time[4:6]}-{backup_time[6:8]} {backup_time[9:11]}:{backup_time[11:13]}:{backup_time[13:15]}"
+                        st.info(f"备份时间: {formatted_time}")
+                    except:
+                        pass
+                    
+                    # 验证文件
+                    is_valid, message = st.session_state.data_manager.validate_backup_file(backup_path)
+                    if is_valid:
+                        st.success(f"✅ {message}")
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            if st.button("📥 导入本地数据", type="primary", key="import_local"):
+                                # 导入前先备份当前数据
+                                current_backup = st.session_state.data_manager.backup_data()
+                                st.info(f"当前数据已备份到: {current_backup}")
+                                
+                                # 执行导入
+                                if st.session_state.data_manager.import_data(backup_path):
+                                    st.success("🎉 数据导入成功！页面将自动刷新...")
+                                    st.rerun()
+                                else:
+                                    st.error("❌ 数据导入失败，请检查文件格式")
+                        
+                        with col2:
+                            if st.button("🔍 预览本地数据", key="preview_local"):
+                                # 预览备份文件内容
+                                with open(backup_path, 'r', encoding='utf-8') as f:
+                                    import json
+                                    preview_data = json.load(f)
+                                    
+                                st.write("**数据概览:**")
+                                st.write(f"- 参与人数: {len(preview_data.get('records', {}))}")
+                                st.write(f"- 处理文件数: {preview_data.get('total_files_processed', 0)}")
+                                st.write(f"- 已处理文件数: {len(preview_data.get('processed_files', {}))}")
+                                if preview_data.get('last_updated'):
+                                    last_update = datetime.fromisoformat(preview_data['last_updated'])
+                                    st.write(f"- 最后更新: {last_update.strftime('%Y-%m-%d %H:%M:%S')}")
+                    else:
+                        st.error(f"❌ {message}")
+            else:
+                st.info("📁 当前没有本地备份文件")
+        
+        with tab2:
+            st.markdown("### 🔄 手动上传备份文件")
+            st.info("💡 支持上传之前导出的JSON格式备份文件")
+            
+            # 文件上传器
+            uploaded_backup = st.file_uploader(
+                "选择备份文件",
+                type=['json'],
+                help="请选择JSON格式的备份文件（通常以 .json 结尾）",
+                key="backup_uploader"
             )
             
-            if selected_backup:
-                backup_path = os.path.join(data_folder, selected_backup)
-                
-                # 显示备份文件信息
+            if uploaded_backup is not None:
                 try:
-                    backup_time = selected_backup.replace("backup_", "").replace(".json", "")
-                    formatted_time = f"{backup_time[:4]}-{backup_time[4:6]}-{backup_time[6:8]} {backup_time[9:11]}:{backup_time[11:13]}:{backup_time[13:15]}"
-                    st.info(f"备份时间: {formatted_time}")
-                except:
-                    pass
-                
-                # 验证文件
-                is_valid, message = st.session_state.data_manager.validate_backup_file(backup_path)
-                if is_valid:
-                    st.success(f"✅ {message}")
+                    # 读取上传的JSON文件
+                    file_content = uploaded_backup.read()
+                    import json
+                    backup_data = json.loads(file_content.decode('utf-8'))
                     
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        if st.button("📥 导入数据", type="primary"):
-                            # 导入前先备份当前数据
-                            current_backup = st.session_state.data_manager.backup_data()
-                            st.info(f"当前数据已备份到: {current_backup}")
+                    # 显示文件信息
+                    st.success(f"✅ 文件读取成功：{uploaded_backup.name}")
+                    st.info(f"📁 文件大小：{len(file_content)} 字节")
+                    
+                    # 验证备份文件格式
+                    required_fields = ["records", "last_updated", "total_files_processed"]
+                    missing_fields = [field for field in required_fields if field not in backup_data]
+                    
+                    if missing_fields:
+                        st.error(f"❌ 备份文件格式错误，缺少字段：{', '.join(missing_fields)}")
+                    else:
+                        # 显示数据概览
+                        st.success("✅ 备份文件格式正确")
+                        
+                        with st.expander("📊 数据概览", expanded=True):
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.metric("参与人数", len(backup_data.get('records', {})))
+                                st.metric("处理文件数", backup_data.get('total_files_processed', 0))
+                            with col2:
+                                st.metric("已处理文件", len(backup_data.get('processed_files', {})))
+                                if backup_data.get('last_updated'):
+                                    try:
+                                        last_update = datetime.fromisoformat(backup_data['last_updated'])
+                                        st.metric("最后更新", last_update.strftime('%m-%d %H:%M'))
+                                    except:
+                                        st.metric("最后更新", "格式错误")
                             
-                            # 执行导入
-                            if st.session_state.data_manager.import_data(backup_path):
-                                st.success("🎉 数据导入成功！页面将自动刷新...")
+                            # 显示详细信息
+                            if backup_data.get('records'):
+                                records_sample = list(backup_data['records'].keys())[:5]
+                                st.write(f"**用户样例**：{', '.join(records_sample)}")
+                                if len(backup_data['records']) > 5:
+                                    st.write(f"...等共 {len(backup_data['records'])} 个用户")
+                        
+                        # 导入按钮
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            if st.button("📥 导入上传数据", type="primary", key="import_upload"):
+                                try:
+                                    # 导入前先备份当前数据
+                                    current_backup = st.session_state.data_manager.backup_data()
+                                    st.info(f"当前数据已备份到: {current_backup}")
+                                    
+                                    # 临时保存上传的文件
+                                    import tempfile
+                                    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as temp_file:
+                                        json.dump(backup_data, temp_file, ensure_ascii=False, indent=2)
+                                        temp_path = temp_file.name
+                                    
+                                    # 执行导入
+                                    if st.session_state.data_manager.import_data(temp_path):
+                                        st.success("🎉 数据导入成功！页面将自动刷新...")
+                                        # 清理临时文件
+                                        os.unlink(temp_path)
+                                        st.rerun()
+                                    else:
+                                        st.error("❌ 数据导入失败")
+                                        os.unlink(temp_path)
+                                        
+                                except Exception as e:
+                                    st.error(f"❌ 导入过程出错：{str(e)}")
+                        
+                        with col2:
+                            # 清空上传文件
+                            if st.button("🗑️ 清空选择", key="clear_upload"):
                                 st.rerun()
-                            else:
-                                st.error("❌ 数据导入失败，请检查文件格式")
-                    
-                    with col2:
-                        if st.button("🔍 预览数据"):
-                            # 预览备份文件内容
-                            with open(backup_path, 'r', encoding='utf-8') as f:
-                                import json
-                                preview_data = json.load(f)
-                                
-                            st.write("**数据概览:**")
-                            st.write(f"- 参与人数: {len(preview_data.get('records', {}))}")
-                            st.write(f"- 处理文件数: {preview_data.get('total_files_processed', 0)}")
-                            st.write(f"- 已处理文件数: {len(preview_data.get('processed_files', {}))}")
-                            if preview_data.get('last_updated'):
-                                last_update = datetime.fromisoformat(preview_data['last_updated'])
-                                st.write(f"- 最后更新: {last_update.strftime('%Y-%m-%d %H:%M:%S')}")
-                else:
-                    st.error(f"❌ {message}")
-        else:
-            st.info("📁 当前没有可用的备份文件")
+                        
+                except json.JSONDecodeError:
+                    st.error("❌ 文件格式错误，请确保是有效的JSON格式")
+                except Exception as e:
+                    st.error(f"❌ 读取文件失败：{str(e)}")
         
         st.markdown("---")
         
