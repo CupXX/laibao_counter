@@ -375,7 +375,7 @@ def main():
     
     with col2:
         # 导入示意图
-        st.image("data/示意图.png", caption="使用说明图解", use_column_width=True)
+        st.image("data/示意图.png", caption="使用说明图解", width=200)
     st.markdown("---")
     
     # 文件上传区域
