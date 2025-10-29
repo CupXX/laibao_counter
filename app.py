@@ -364,7 +364,7 @@ def main():
     
     with col1:
         st.markdown("""
-        <div style="font-size: 16px; line-height: 1.6;">
+        <div style="font-size: 20px; line-height: 1.8;">
         1. **设置奖励机制**: 在左侧侧边栏，设置基础积分、奖励人数、奖励倍数。<br>
         2. **导出数据**: 在来豹接龙小程序中，导出数据（不要插入图片！！），时间选择全部。<br>
         3. **上传Excel文件**:将导出的Excel文件拖到下方，上传接龙数据。（支持多个文件同时上传）<br>
