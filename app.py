@@ -259,7 +259,7 @@ def process_uploaded_files(uploaded_files, file_weights=None):
                     )
                 else:
                     # 只有码数变化，使用原有方法
-                st.session_state.data_manager.update_existing_file_scores(nicknames, uploaded_file.name, weight)
+                    st.session_state.data_manager.update_existing_file_scores(nicknames, uploaded_file.name, weight)
                     rewarded_count = 0
                 
                 updated_files_count += 1
