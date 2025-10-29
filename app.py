@@ -52,8 +52,7 @@ def display_statistics():
 
 def display_leaderboard():
     """显示积分排行榜"""
-    st.subheader("📊 积分排行榜")
-    
+
     leaderboard = st.session_state.data_manager.get_leaderboard()
     
     if not leaderboard:
@@ -76,6 +75,7 @@ def display_leaderboard():
     col1, col2 = st.columns([1, 1])  # 1:1的比例，各占50%宽度
     
     with col1:
+        st.subheader("📊 积分排行榜")
         # 显示排行榜（左侧）
         st.dataframe(
             df,
@@ -85,6 +85,7 @@ def display_leaderboard():
         )
     
     with col2:
+        st.subheader("📊 已处理文件列表")
         # 右侧区域：已处理文件列表
         processed_files = st.session_state.data_manager.get_processed_files()
         
@@ -106,7 +107,7 @@ def display_leaderboard():
                     reward_info = f"前{len(rewarded_users)}名×{reward_multiplier}"
                 
                 processed_df_data.append({
-                    "文件名": file_info["file_name"],
+                    "已处理文件": file_info["file_name"],
                     "处理时间": processed_date.strftime("%m-%d %H:%M"),
                     "昵称数": file_info["nicknames_count"],
                     "码数": weight,
@@ -545,25 +546,6 @@ def main():
                 if st.button("❌ 取消操作"):
                     st.session_state.show_clear_confirm = False
                     st.rerun()
-                
-                if st.button("📥 下载我的数据", help="下载当前会话的所有积分记录"):
-                    try:
-                        # 导出用户数据
-                        user_data = st.session_state.data_manager.export_user_data()
-                        
-                        # 创建下载文件名
-                        download_filename = f"我的打卡统计_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-                        
-                        st.download_button(
-                            label="📁 点击下载",
-                            data=user_data,
-                            file_name=download_filename,
-                            mime="application/json",
-                            help="下载JSON格式的积分数据"
-                        )
-                        
-                    except Exception as e:
-                        st.error(f"导出数据失败: {str(e)}")
 
         if st.button("📁 下载我的数据", help="下载当前会话的所有积分记录"):
             try:
