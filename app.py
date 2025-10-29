@@ -49,7 +49,7 @@ def display_statistics():
 
 def display_leaderboard():
     """显示积分排行榜"""
-
+    
     leaderboard = st.session_state.data_manager.get_leaderboard()
     
     if not leaderboard:
@@ -74,13 +74,13 @@ def display_leaderboard():
     with col1:
         st.subheader("📊 积分排行榜")
         # 显示排行榜（左侧）
-        st.dataframe(
-            df,
-            use_container_width=True,
-            hide_index=False,
-            height=600
-        )
-    
+    st.dataframe(
+        df,
+        use_container_width=True,
+        hide_index=False,
+        height=600
+    )
+
     with col2:
         st.subheader("📊 已处理文件列表")
         # 右侧区域：已处理文件列表
@@ -259,7 +259,7 @@ def process_uploaded_files(uploaded_files, file_weights=None):
                     )
                 else:
                     # 只有码数变化，使用原有方法
-                    st.session_state.data_manager.update_existing_file_scores(nicknames, uploaded_file.name, weight)
+                st.session_state.data_manager.update_existing_file_scores(nicknames, uploaded_file.name, weight)
                     rewarded_count = 0
                 
                 updated_files_count += 1
@@ -358,15 +358,24 @@ def main():
     
     # 使用说明
     st.subheader("📖 使用说明")
-    st.markdown("""
-    1. **设置奖励机制**: 在左侧侧边栏，设置基础积分、奖励人数、奖励倍数。
-    2. **导出数据**: 在来豹接龙小程序中，导出数据（不要插入图片！！）。
-    3. **上传Excel文件**:将导出的Excel文件拖到下方，上传接龙数据。（支持多个文件同时上传）
-    4. **设置码数**: 设置每个接龙的码数，默认为1，可自行修改，设置好后点击开始处理按钮，即可自动计算积分。
-    5. **查看排行榜**: 在主页面下方可查看积分排行榜和已处理文件列表。点击排行榜右上方的下载按钮可以下载当前的排行榜数据。
-    6. **下载数据**: 在左侧侧边栏，点击【下载我的数据】，即可备份所有处理历史记录，保存为json文件。
-    7. **上传数据**: 再次使用时，把保存的json文件拖到【上传数据】区域，即可上传之前备份的数据，继续编辑。
-    """)
+    
+    # 使用列布局：左侧说明，右侧图片
+    col1, col2 = st.columns([2, 1])  # 左侧占2/3，右侧占1/3
+    
+    with col1:
+        st.markdown("""
+        1. **设置奖励机制**: 在左侧侧边栏，设置基础积分、奖励人数、奖励倍数。
+        2. **导出数据**: 在来豹接龙小程序中，导出数据（不要插入图片！！），时间选择全部。
+        3. **上传Excel文件**:将导出的Excel文件拖到下方，上传接龙数据。（支持多个文件同时上传）
+        4. **设置码数**: 设置每个接龙的码数，默认为1，可自行修改，设置好后点击开始处理按钮，即可自动计算积分。
+        5. **查看排行榜**: 在主页面下方可查看积分排行榜和已处理文件列表。点击排行榜右上方的下载按钮可以下载当前的排行榜数据。
+        6. **下载数据**: 在左侧侧边栏，点击【下载我的数据】，即可备份所有处理历史记录，保存为json文件。
+        7. **上传数据**: 再次使用时，把保存的json文件拖到【上传数据】区域，即可上传之前备份的数据，继续编辑。
+        """)
+    
+    with col2:
+        # 导入示意图
+        st.image("data/示意图.png", caption="使用说明图解", use_column_width=True)
     st.markdown("---")
     
     # 文件上传区域
@@ -604,7 +613,7 @@ def main():
                 if st.button("❌ 取消操作"):
                     st.session_state.show_clear_confirm = False
                     st.rerun()
-
+        
         if st.button("📁 下载我的数据", help="下载当前会话的所有积分记录"):
             try:
                 # 导出用户数据
