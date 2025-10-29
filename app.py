@@ -60,13 +60,6 @@ def display_leaderboard():
     df = pd.DataFrame(leaderboard)
     df.index = range(1, len(df) + 1)  # 从1开始的排名
     
-    # 调试：打印DataFrame内容
-    st.write("调试信息：")
-    st.write("原始数据：", leaderboard[:3] if leaderboard else "无数据")
-    st.write("DataFrame列：", df.columns.tolist())
-    st.write("DataFrame前3行：")
-    st.write(df.head(3))
-    
     # 添加参与接龙次数（纯计数，不考虑权重和奖励）
     if 'participation_count' in df.columns:
         df = df[['nickname', 'score', 'participation_count']]
