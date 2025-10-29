@@ -638,11 +638,10 @@ def main():
 
         # 数据上传功能
         st.subheader("📤 上传数据")
-        st.info("💡 支持上传之前导出的JSON格式备份文件")
         
         # 文件上传器
         uploaded_backup = st.file_uploader(
-            "选择备份文件",
+            "选择备份文件，支持上传之前导出的JSON格式备份文件",
             type=['json'],
             help="请选择JSON格式的备份文件（通常以 .json 结尾）",
             key="backup_uploader"
@@ -654,33 +653,19 @@ def main():
                 import json
                 backup_data = json.loads(file_content.decode('utf-8'))
                 
-                # 显示文件信息
-                st.success(f"✅ 文件读取成功：{uploaded_backup.name}")
-                st.info(f"📁 文件大小：{len(file_content)} 字节")
-                
                 # 验证备份文件格式
                 required_fields = ["records", "last_updated", "total_files_processed"]
                 missing_fields = [field for field in required_fields if field not in backup_data]
                 
                 if missing_fields:
                     st.error(f"❌ 备份文件格式错误，缺少字段：{', '.join(missing_fields)}")
-                else:
-                    # 显示数据概览
-                    st.success("✅ 备份文件格式正确")
                     
                     with st.expander("📊 数据概览", expanded=True):
                         col1, col2 = st.columns(2)
                         with col1:
                             st.metric("参与人数", len(backup_data.get('records', {})))
-                            st.metric("处理文件数", backup_data.get('total_files_processed', 0))
                         with col2:
-                            st.metric("已处理文件", len(backup_data.get('processed_files', {})))
-                            if backup_data.get('last_updated'):
-                                try:
-                                    last_update = datetime.fromisoformat(backup_data['last_updated'])
-                                    st.metric("最后更新", last_update.strftime('%m-%d %H:%M'))
-                                except:
-                                    st.metric("最后更新", "格式错误")
+                            st.metric("处理文件数", backup_data.get('total_files_processed', 0))
                     
                     # 导入按钮
                     if st.button("📥 导入上传数据", type="primary", key="import_upload"):
