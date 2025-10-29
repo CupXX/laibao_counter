@@ -74,10 +74,10 @@ def display_leaderboard():
     with col1:
         st.subheader("📊 积分排行榜")
         # 显示排行榜（左侧）
-    st.dataframe(
+        st.dataframe(
         df,
         use_container_width=True,
-        hide_index=False,
+        hide_index=True,
         height=600
     )
 
