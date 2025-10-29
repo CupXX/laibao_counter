@@ -366,7 +366,7 @@ def main():
         st.markdown("""
         <div style="font-size: 22px; line-height: 1.8;">
         1. <strong>设置奖励机制</strong>: 在左侧侧边栏，设置基础积分、奖励人数、奖励倍数。<br>
-        2. <strong>导出数据</strong>: 在来豹接龙小程序中，导出数据（不要插入图片！！），时间选择全部。<br>
+        2. <strong>导出数据</strong>: 在来豹接龙小程序中，导出数据（不要插入图片！！），可以参考右图，时间选择全部。<br>
         3. <strong>上传Excel文件</strong>:将导出的Excel文件拖到下方，上传接龙数据。（支持多个文件同时上传）<br>
         4. <strong>设置码数</strong>: 设置每个接龙的码数，默认为1，可自行修改，设置好后点击开始处理按钮，即可自动计算积分。<br>
         5. <strong>查看排行榜</strong>: 在主页面下方可查看积分排行榜和已处理文件列表。<br>
@@ -378,7 +378,7 @@ def main():
     
     with col2:
         # 导入示意图
-        st.image("data/示意图.png", caption="使用说明图解", width=200)
+        st.image("data/示意图.png", caption="导出数据设置示意图", width=200)
     st.markdown("---")
     
     # 文件上传区域
