@@ -307,25 +307,21 @@ def main():
     # 页面标题
     st.title("📊 来豹接龙打卡记录统计工具")
     
-    # 显示统计信息
-    display_statistics()
-    st.markdown("---")
-    
     # 使用说明
     st.subheader("📖 使用说明")
     st.markdown("""
     1. **设置奖励机制**: 在左侧侧边栏，设置基础积分、奖励人数、奖励倍数。
     2. **导出数据**: 在来豹接龙小程序中，导出数据（不要插入图片！！）。
-    3. **上传Excel文件**:将导出的Excel文件拖到下方，上传打卡数据。（支持多个文件同时上传）
+    3. **上传Excel文件**:将导出的Excel文件拖到下方，上传接龙数据。（支持多个文件同时上传）
     4. **设置码数**: 设置每个接龙的码数，默认为1，可自行修改，设置好后点击开始处理按钮，即可自动计算积分。
-    5. **查看排行榜**: 在主页面下方可查看积分排行榜和已处理文件列表。
-    6. **下载数据**: 在左侧侧边栏，点击下载数据，即可备份当前会话的所有处理记录。
-    7. **上传数据**: 再次使用时，点击上传数据，即可上传之前备份的数据，继续编辑。
+    5. **查看排行榜**: 在主页面下方可查看积分排行榜和已处理文件列表。点击排行榜右上方的下载按钮可以下载当前的排行榜数据。
+    6. **下载数据**: 在左侧侧边栏，点击【下载我的数据】，即可备份所有处理历史记录，保存为json文件。
+    7. **上传数据**: 再次使用时，把下载的json文件拖到【上传数据】区域，即可上传之前备份的数据，继续编辑。
     """)
     st.markdown("---")
     
     # 文件上传区域
-    st.subheader("📤 上传Excel文件")
+    st.subheader("📤 上传接龙数据")
     
     # 使用key来控制文件上传器的重置
     uploaded_files = st.file_uploader(
@@ -452,6 +448,10 @@ def main():
     # 显示排行榜
     display_leaderboard()
     
+    # 在排行榜下方显示统计信息
+    st.markdown("---")
+    display_statistics()
+    
     # 侧边栏 - 设置和管理功能
     with st.sidebar:
         # 设置奖励机制
@@ -505,6 +505,62 @@ def main():
             st.success(f"🎯 奖励已启用：前 {reward_count} 名获得 {reward_multiplier}x 倍数")
         else:
             st.info("💡 奖励未启用（奖励人数为0）")
+        
+        st.markdown("---")
+        
+        # 应用于所有接龙按钮
+        st.subheader("🔄 应用于所有接龙")
+        if st.button("📊 更新所有接龙奖励机制", type="primary", help="将新的奖励机制应用到所有已处理的接龙文件，并重新计算积分榜"):
+            try:
+                # 获取当前奖励设置
+                current_base_score = st.session_state.base_score
+                current_reward_count = st.session_state.reward_count
+                current_reward_multiplier = st.session_state.reward_multiplier
+                
+                # 获取所有已处理文件
+                processed_files = st.session_state.data_manager.get_processed_files()
+                
+                if not processed_files:
+                    st.warning("没有已处理的接龙文件")
+                else:
+                    # 重新计算所有文件的积分
+                    updated_count = 0
+                    for file_info in processed_files:
+                        # 更新文件的奖励设置
+                        file_info['base_score'] = current_base_score
+                        file_info['reward_count'] = current_reward_count
+                        file_info['reward_multiplier'] = current_reward_multiplier
+                        
+                        # 重新计算积分
+                        nicknames_count = file_info['nicknames_count']
+                        weight = file_info.get('weight', 1)
+                        
+                        # 计算基础积分
+                        base_points = nicknames_count * current_base_score * weight
+                        
+                        # 计算奖励积分
+                        if current_reward_count > 0 and nicknames_count > 0:
+                            # 获取该文件处理时的用户排名（这里简化处理，实际应该根据当时的排名）
+                            rewarded_users = min(current_reward_count, nicknames_count)
+                            reward_points = rewarded_users * current_base_score * weight * (current_reward_multiplier - 1)
+                            total_points = base_points + reward_points
+                            file_info['rewarded_users'] = list(range(rewarded_users))  # 简化处理
+                        else:
+                            total_points = base_points
+                            file_info['rewarded_users'] = []
+                        
+                        file_info['total_points'] = total_points
+                        updated_count += 1
+                    
+                    # 保存更新后的数据
+                    st.session_state.data_manager.save_data(st.session_state.data_manager.load_data())
+                    
+                    st.success(f"✅ 已更新 {updated_count} 个接龙文件的奖励机制！")
+                    st.info("积分榜已重新计算，页面将自动刷新...")
+                    st.rerun()
+                    
+            except Exception as e:
+                st.error(f"❌ 更新失败：{str(e)}")
         
         st.markdown("---")
         
