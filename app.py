@@ -659,7 +659,8 @@ def main():
                 
                 if missing_fields:
                     st.error(f"❌ 备份文件格式错误，缺少字段：{', '.join(missing_fields)}")
-                    
+                else:
+                   
                     with st.expander("📊 数据概览", expanded=True):
                         col1, col2 = st.columns(2)
                         with col1:
