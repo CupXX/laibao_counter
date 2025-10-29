@@ -162,26 +162,49 @@ def process_uploaded_files(uploaded_files, file_weights=None):
         progress_bar.progress(progress)
         status_text.text(f"正在处理: {uploaded_file.name} ({i+1}/{total_files})")
         
-        # 检查是否已经处理过，以及码数是否有变化
+        # 检查是否已经处理过，以及码数或奖励机制是否有变化
         is_processed = st.session_state.data_manager.is_file_processed(uploaded_file.name)
         if is_processed:
             # 获取文件的当前码数和历史码数
             current_weight = file_weights.get(uploaded_file.name, 1)
             processed_files = st.session_state.data_manager.get_processed_files()
             historical_weight = 1
+            historical_base_score = 1.0
+            historical_reward_count = 0
+            historical_reward_multiplier = 1.5
+            
             for pf in processed_files:
                 if pf['file_name'] == uploaded_file.name:
                     historical_weight = pf.get('weight', 1)
+                    historical_base_score = pf.get('base_score', 1.0)
+                    historical_reward_count = pf.get('reward_count', 0)
+                    historical_reward_multiplier = pf.get('reward_multiplier', 1.5)
                     break
             
-            # 如果码数没有变化，跳过处理
-            if current_weight == historical_weight:
+            # 获取当前奖励设置
+            current_base_score = st.session_state.get('base_score', 1.0)
+            current_reward_count = st.session_state.get('reward_count', 0)
+            current_reward_multiplier = st.session_state.get('reward_multiplier', 1.5)
+            
+            # 检查是否有变化
+            weight_changed = current_weight != historical_weight
+            reward_changed = (current_base_score != historical_base_score or 
+                            current_reward_count != historical_reward_count or 
+                            current_reward_multiplier != historical_reward_multiplier)
+            
+            # 如果码数和奖励机制都没有变化，跳过处理
+            if not weight_changed and not reward_changed:
                 old_files_count += 1
-                st.info(f"⏭️ {uploaded_file.name} - 已处理过，码数未变化，跳过")
+                st.info(f"⏭️ {uploaded_file.name} - 已处理过，码数和奖励机制未变化，跳过")
                 continue
             else:
-                # 码数有变化，需要重新处理
-                st.info(f"🔄 {uploaded_file.name} - 码数从 {historical_weight} 更新为 {current_weight}，重新计算积分")
+                # 有变化，显示变化信息
+                changes = []
+                if weight_changed:
+                    changes.append(f"码数: {historical_weight} → {current_weight}")
+                if reward_changed:
+                    changes.append(f"奖励机制: {historical_base_score}/{historical_reward_count}/{historical_reward_multiplier} → {current_base_score}/{current_reward_count}/{current_reward_multiplier}")
+                st.info(f"🔄 {uploaded_file.name} - 检测到变化: {', '.join(changes)}")
                 updated_files_count += 1
         
         # 验证文件格式
@@ -211,9 +234,35 @@ def process_uploaded_files(uploaded_files, file_weights=None):
             reward_multiplier = st.session_state.get('reward_multiplier', 1.5)
             
             if is_update:
-                # 更新已处理文件的积分
-                st.session_state.data_manager.update_existing_file_scores(nicknames, uploaded_file.name, weight)
-                rewarded_count = 0  # 更新功能暂不支持奖励重新计算
+                # 更新已处理文件的积分（支持码数和奖励机制更新）
+                # 检查是否有奖励机制变化
+                processed_files = st.session_state.data_manager.get_processed_files()
+                historical_base_score = 1.0
+                historical_reward_count = 0
+                historical_reward_multiplier = 1.5
+                
+                for pf in processed_files:
+                    if pf['file_name'] == uploaded_file.name:
+                        historical_base_score = pf.get('base_score', 1.0)
+                        historical_reward_count = pf.get('reward_count', 0)
+                        historical_reward_multiplier = pf.get('reward_multiplier', 1.5)
+                        break
+                
+                # 如果奖励机制有变化，使用新的奖励机制重新计算
+                if (base_score != historical_base_score or 
+                    reward_count != historical_reward_count or 
+                    reward_multiplier != historical_reward_multiplier):
+                    # 使用新的奖励机制重新计算
+                    rewarded_count = st.session_state.data_manager.update_scores_with_rewards(
+                        nicknames, times, uploaded_file.name, weight, 
+                        base_score, reward_count, reward_multiplier
+                    )
+                else:
+                    # 只有码数变化，使用原有方法
+                    st.session_state.data_manager.update_existing_file_scores(nicknames, uploaded_file.name, weight)
+                    rewarded_count = 0
+                
+                updated_files_count += 1
             else:
                 # 新文件，使用新的积分计算和奖励机制
                 rewarded_count = st.session_state.data_manager.update_scores_with_rewards(
@@ -379,6 +428,7 @@ def main():
         st.write("💡 提示：")
         st.write("- 🆕 新文件：设置积分倍数，将被处理")
         st.write("- 🔄 已处理文件：可修改码数，如有变化将重新计算积分")
+        st.write("- 🎯 奖励机制更新：如果奖励设置与之前不同，重新上传文件将更新奖励机制")
         
         edited_df = st.data_editor(
             file_df,
@@ -505,62 +555,6 @@ def main():
             st.success(f"🎯 奖励已启用：前 {reward_count} 名获得 {reward_multiplier}x 倍数")
         else:
             st.info("💡 奖励未启用（奖励人数为0）")
-        
-        st.markdown("---")
-        
-        # 应用于所有接龙按钮
-        st.subheader("🔄 应用于所有接龙")
-        if st.button("📊 更新所有接龙奖励机制", type="primary", help="将新的奖励机制应用到所有已处理的接龙文件，并重新计算积分榜"):
-            try:
-                # 获取当前奖励设置
-                current_base_score = st.session_state.base_score
-                current_reward_count = st.session_state.reward_count
-                current_reward_multiplier = st.session_state.reward_multiplier
-                
-                # 获取所有已处理文件
-                processed_files = st.session_state.data_manager.get_processed_files()
-                
-                if not processed_files:
-                    st.warning("没有已处理的接龙文件")
-                else:
-                    # 重新计算所有文件的积分
-                    updated_count = 0
-                    for file_info in processed_files:
-                        # 更新文件的奖励设置
-                        file_info['base_score'] = current_base_score
-                        file_info['reward_count'] = current_reward_count
-                        file_info['reward_multiplier'] = current_reward_multiplier
-                        
-                        # 重新计算积分
-                        nicknames_count = file_info['nicknames_count']
-                        weight = file_info.get('weight', 1)
-                        
-                        # 计算基础积分
-                        base_points = nicknames_count * current_base_score * weight
-                        
-                        # 计算奖励积分
-                        if current_reward_count > 0 and nicknames_count > 0:
-                            # 获取该文件处理时的用户排名（这里简化处理，实际应该根据当时的排名）
-                            rewarded_users = min(current_reward_count, nicknames_count)
-                            reward_points = rewarded_users * current_base_score * weight * (current_reward_multiplier - 1)
-                            total_points = base_points + reward_points
-                            file_info['rewarded_users'] = list(range(rewarded_users))  # 简化处理
-                        else:
-                            total_points = base_points
-                            file_info['rewarded_users'] = []
-                        
-                        file_info['total_points'] = total_points
-                        updated_count += 1
-                    
-                    # 保存更新后的数据
-                    st.session_state.data_manager.save_data(st.session_state.data_manager.load_data())
-                    
-                    st.success(f"✅ 已更新 {updated_count} 个接龙文件的奖励机制！")
-                    st.info("积分榜已重新计算，页面将自动刷新...")
-                    st.rerun()
-                    
-            except Exception as e:
-                st.error(f"❌ 更新失败：{str(e)}")
         
         st.markdown("---")
         
