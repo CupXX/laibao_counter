@@ -7,6 +7,7 @@ from typing import List, Tuple, Optional, Dict
 import re
 from openpyxl import load_workbook
 import io
+import streamlit as st
 
 
 class ExcelProcessor:
@@ -147,7 +148,8 @@ class ExcelProcessor:
                 cell = ws.cell(row=openpyxl_header_row, column=col_idx)
                 headers.append(cell.value)
             
-            print(f"[调试] 文件: {file_name}, 列名: {headers}")  # 调试信息
+            st.write(f"🔍 [调试] 文件: {file_name}")
+            st.write(f"📋 [调试] 列名: {headers}")
             
             # 找到昵称列索引
             nickname_col = None
@@ -160,11 +162,11 @@ class ExcelProcessor:
                 if nickname_col:
                     break
             
-            print(f"[调试] 昵称列索引: {nickname_col}")  # 调试信息
+            st.write(f"👤 [调试] 昵称列索引: {nickname_col}")
             
             if nickname_col is None:
                 wb.close()
-                print(f"[调试] 未找到昵称列，返回空字典")  # 调试信息
+                st.warning(f"⚠️ [调试] 未找到昵称列，返回空字典")
                 return {}
             
             # 找到所有图片相关的列索引（排除"订正图片"）
@@ -177,9 +179,9 @@ class ExcelProcessor:
                         header_str = str(header).strip()
                         if re.search(r'图片\d+', header_str):
                             image_cols.append(idx)
-                            print(f"[调试] 找到图片列: {header_str} (索引: {idx})")  # 调试信息
+                            st.write(f"🖼️ [调试] 找到图片列: {header_str} (索引: {idx})")
             
-            print(f"[调试] 图片列索引: {image_cols}")  # 调试信息
+            st.write(f"📊 [调试] 图片列索引总数: {len(image_cols)} 个")
             
             # 统计每行的图片数量
             nickname_image_count = {}
@@ -210,16 +212,24 @@ class ExcelProcessor:
                 else:
                     nickname_image_count[nickname] = image_count
             
-            print(f"[调试] 统计结果: {nickname_image_count}")  # 调试信息
+            # 显示统计结果摘要
+            total_people = len(nickname_image_count)
+            total_images = sum(nickname_image_count.values())
+            st.write(f"✅ [调试] 统计完成: 共 {total_people} 人，总计 {total_images} 张图片")
+            
+            # 显示前5个昵称的统计（示例）
+            if nickname_image_count:
+                sample_items = list(nickname_image_count.items())[:5]
+                st.write(f"📝 [调试] 示例数据: {dict(sample_items)}")
             
             wb.close()
             return nickname_image_count
             
         except Exception as e:
             # 如果统计失败，返回空字典（后续会使用默认码数1）
-            print(f"[调试] 统计图片数量时出错: {str(e)}")  # 调试信息
+            st.error(f"❌ [调试] 统计图片数量时出错: {str(e)}")
             import traceback
-            traceback.print_exc()
+            st.code(traceback.format_exc())
             return {}
     
     def extract_nicknames_and_times_from_file(self, file_content, file_name: str) -> Tuple[List[str], List[str], List[int], str]:
