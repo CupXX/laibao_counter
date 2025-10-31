@@ -37,10 +37,10 @@ class DataManager:
         os.makedirs(os.path.dirname(self.data_file), exist_ok=True)
         if not os.path.exists(self.data_file):
             self.save_data({
-                "records": {},
-                "processed_files": {},  # 新增：记录已处理的文件
-                "last_updated": datetime.now().isoformat(),
-                "total_files_processed": 0
+                "records_by_nickname": {},
+                "records_by_name": {},
+                "processed_files": {},
+                "last_updated": datetime.now().isoformat()
             })
     
     def load_data(self) -> Dict:
@@ -70,8 +70,7 @@ class DataManager:
                 "records_by_nickname": {},
                 "records_by_name": {},
                 "processed_files": {},
-                "last_updated": datetime.now().isoformat(),
-                "total_files_processed": 0
+                "last_updated": datetime.now().isoformat()
             }
     
     def save_data(self, data: Dict):
@@ -193,7 +192,14 @@ class DataManager:
         else:
             data["records_by_nickname"] = records
         
-        data["total_files_processed"] += 1
+        # 记录已处理的文件（用于统计文件数，避免重复计数）
+        if "processed_files" not in data:
+            data["processed_files"] = {}
+        if file_name and file_name not in data["processed_files"]:
+            data["processed_files"][file_name] = {
+                "processed_date": datetime.now().isoformat()
+            }
+        
         self.save_data(data)
         
         return len(reward_users)  # 返回获得奖励的人数
@@ -323,9 +329,12 @@ class DataManager:
         else:
             records = data["records_by_nickname"]
         
+        # 统计实际处理的文件数（去重）
+        processed_files_count = len(data.get("processed_files", {}))
+        
         return {
             "total_participants": len(records),
-            "total_files_processed": data.get("total_files_processed", 0),
+            "total_files_processed": processed_files_count,
             "last_updated": data.get("last_updated", ""),
             "total_checkins": sum(info["score"] for info in records.values()) if records else 0
         }
