@@ -31,7 +31,9 @@ def init_session_state():
 
 def display_statistics():
     """显示统计信息"""
-    stats = st.session_state.data_manager.get_statistics()
+    # 根据选择的积分方式获取对应的统计信息
+    score_group_by = st.session_state.get('score_group_by', 'nickname')
+    stats = st.session_state.data_manager.get_statistics(group_by=score_group_by)
     
     col1, col2, col3, col4 = st.columns(4)
     

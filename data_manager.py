@@ -305,19 +305,29 @@ class DataManager:
         leaderboard.sort(key=lambda x: x["score"], reverse=True)
         return leaderboard
     
-    def get_statistics(self) -> Dict:
+    def get_statistics(self, group_by: str = "nickname") -> Dict:
         """
         获取统计信息
+        
+        Args:
+            group_by: "nickname"使用昵称记录，"name"使用姓名记录
         
         Returns:
             统计信息字典
         """
         data = self.load_data()
+        
+        # 根据group_by选择使用哪份记录
+        if group_by == "name":
+            records = data["records_by_name"]
+        else:
+            records = data["records_by_nickname"]
+        
         return {
-            "total_participants": len(data["records"]),
-            "total_files_processed": data["total_files_processed"],
-            "last_updated": data["last_updated"],
-            "total_checkins": sum(info["score"] for info in data["records"].values())
+            "total_participants": len(records),
+            "total_files_processed": data.get("total_files_processed", 0),
+            "last_updated": data.get("last_updated", ""),
+            "total_checkins": sum(info["score"] for info in records.values()) if records else 0
         }
     
     def backup_data(self) -> str:
