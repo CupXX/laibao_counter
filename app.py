@@ -50,9 +50,8 @@ def display_statistics():
 def display_leaderboard():
     """显示积分排行榜"""
     
-    # 获取分组方式
-    group_by = st.session_state.get('score_group_by', 'nickname')
-    leaderboard = st.session_state.data_manager.get_leaderboard(group_by=group_by)
+    # 直接获取排行榜，不动态分组
+    leaderboard = st.session_state.data_manager.get_leaderboard()
     
     if not leaderboard:
         st.info("还没有积分记录，请先上传Excel文件。")
@@ -62,16 +61,13 @@ def display_leaderboard():
     df = pd.DataFrame(leaderboard)
     df.index = range(1, len(df) + 1)  # 从1开始的排名
     
-    # 根据分组方式设置列名
-    first_column_name = '姓名' if group_by == 'name' else '昵称'
-    
     # 添加参与接龙次数（纯计数，不考虑权重和奖励）
     if 'participation_count' in df.columns:
         df = df[['nickname', 'score', 'participation_count']]
-        df.columns = [first_column_name, '积分', '参与接龙次数']
+        df.columns = ['昵称/姓名', '积分', '参与接龙次数']
     else:
         df = df[['nickname', 'score']]
-        df.columns = [first_column_name, '积分']
+        df.columns = ['昵称/姓名', '积分']
     
     # 使用列布局：左侧排行榜，右侧预留空间
     col1, col2 = st.columns([1, 1])  # 1:1的比例，各占50%宽度
@@ -180,15 +176,14 @@ def process_uploaded_files(uploaded_files, file_weights=None):
         
         if nicknames:
             # 现在nicknames、names、times、image_counts包含所有原始行数据（未去重）
-            # 需要根据积分统计方式进行分组
+            # 根据当前选择的积分方式进行分组
             
             # 获取积分统计方式
             score_group_by = st.session_state.get('score_group_by', 'nickname')
             
-            # 根据不同的统计方式进行分组
             groups = {}
             for nickname, name, time_val, img_count in zip(nicknames, names, times, image_counts):
-                # 决定分组的key
+                # 根据选择的积分方式决定分组key
                 if score_group_by == 'name':
                     # 按姓名分组：使用姓名作为key，如果没有姓名则使用昵称
                     key = name if name and name.strip() != "" else nickname
@@ -198,20 +193,19 @@ def process_uploaded_files(uploaded_files, file_weights=None):
                 
                 if key not in groups:
                     groups[key] = {
-                        'nickname': nickname,  # 保留原始昵称（用于记录）
-                        'name': name if name and name.strip() != "" else nickname,
+                        'name': name if name and name.strip() != "" else key,
                         'time': time_val,  # 使用第一次出现的时间
-                        'image_count': img_count  # 初始化为第一次的图片数
+                        'image_count': img_count
                     }
                 else:
-                    # 无论按昵称还是按姓名，都累加同一key的所有图片数
+                    # 累加同一key的所有图片数
                     groups[key]['image_count'] += img_count
             
             # 重新构建列表
-            nicknames = [groups[key]['nickname'] if score_group_by == 'nickname' else key for key in groups.keys()]
-            names = [groups[key]['name'] for key in groups.keys()]
-            times = [groups[key]['time'] for key in groups.keys()]
-            image_counts = [groups[key]['image_count'] for key in groups.keys()]
+            nicknames = list(groups.keys())
+            names = [groups[key]['name'] for key in nicknames]
+            times = [groups[key]['time'] for key in nicknames]
+            image_counts = [groups[key]['image_count'] for key in nicknames]
             
             # 判断是新文件还是更新文件
             is_update = st.session_state.data_manager.is_file_processed(uploaded_file.name)
@@ -372,7 +366,7 @@ def main():
         st.markdown("""
         <div style="font-size: 22px; line-height: 1.8;">
         1. <strong>基础设置</strong>: 在左侧侧边栏，设置按积分还是按姓名积分，以及每一个码的基础积分。<br>
-        2. <strong>设置奖励人数</strong>: 在左侧侧边栏，设置奖励人数、奖励倍数。<br>
+        2. <strong>设置奖励人数</strong>: 在左侧侧边栏，设置奖励人数、奖励倍数（前几个做任务的获得几倍积分）。<br>
         2. <strong>导出数据</strong>: 在来豹接龙小程序中，导出数据，时间选择全部（参考右图）。<br>
         3. <strong>上传Excel文件</strong>: 将导出的Excel文件拖到下方上传。（支持多个文件同时上传）<br>
         4. <strong>自动计算码数</strong>: 系统会自动根据每个人上传的图片数量计算码数，点击开始处理按钮即可自动统计积分。<br>
@@ -495,11 +489,9 @@ def main():
             options=['nickname', 'name'],
             format_func=lambda x: '按昵称积分' if x == 'nickname' else '按姓名积分',
             index=0 if st.session_state.score_group_by == 'nickname' else 1,
-            help="按昵称：每个昵称独立统计；按姓名：同一姓名下的所有昵称积分合并"
+            help="按昵称：每个昵称独立统计；按姓名：同一姓名下的所有昵称积分合并。修改后需要重新上传文件才会生效。"
         )
-        if score_group_by != st.session_state.score_group_by:
-            st.session_state.score_group_by = score_group_by
-            st.rerun()
+        st.session_state.score_group_by = score_group_by
         
         # 基础积分设置
         base_score = st.number_input(
