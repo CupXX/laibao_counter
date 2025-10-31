@@ -196,9 +196,9 @@ class ExcelProcessor:
                     if cell.hyperlink is not None:
                         image_count += 1
                 
-                # 如果昵称已存在，取最大值（避免重复条目）
+                # 如果昵称已存在，累加图片数（同一个人在多行的图片数相加）
                 if nickname in nickname_image_count:
-                    nickname_image_count[nickname] = max(nickname_image_count[nickname], image_count)
+                    nickname_image_count[nickname] += image_count
                 else:
                     nickname_image_count[nickname] = image_count
             

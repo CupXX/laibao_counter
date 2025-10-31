@@ -517,3 +517,67 @@ class DataManager:
         # 按处理时间降序排列（最新的在前面）
         files_list.sort(key=lambda x: x["processed_date"], reverse=True)
         return files_list
+    
+    def get_all_nicknames(self) -> List[str]:
+        """
+        获取所有昵称列表
+        
+        Returns:
+            昵称列表，按字母顺序排序
+        """
+        data = self.load_data()
+        nicknames = list(data["records"].keys())
+        nicknames.sort()
+        return nicknames
+    
+    def merge_nicknames(self, source_nicknames: List[str], target_nickname: str) -> bool:
+        """
+        将多个昵称合并到目标昵称
+        
+        Args:
+            source_nicknames: 要合并的源昵称列表（这些昵称会被删除）
+            target_nickname: 目标昵称（所有记录会合并到这里）
+            
+        Returns:
+            是否成功合并
+        """
+        if not source_nicknames or not target_nickname:
+            return False
+        
+        data = self.load_data()
+        
+        # 确保目标昵称存在于记录中
+        if target_nickname not in data["records"]:
+            # 如果目标昵称不存在，检查是否在源昵称中
+            if target_nickname in source_nicknames:
+                # 创建目标昵称的初始记录
+                data["records"][target_nickname] = {
+                    "score": 0,
+                    "files": []
+                }
+            else:
+                # 目标昵称既不存在也不在源昵称中，无法合并
+                return False
+        
+        # 合并所有源昵称到目标昵称
+        for source_nickname in source_nicknames:
+            if source_nickname == target_nickname:
+                continue  # 跳过目标昵称本身
+            
+            if source_nickname not in data["records"]:
+                continue  # 源昵称不存在，跳过
+            
+            source_data = data["records"][source_nickname]
+            
+            # 合并积分
+            data["records"][target_nickname]["score"] += source_data["score"]
+            
+            # 合并文件记录
+            data["records"][target_nickname]["files"].extend(source_data["files"])
+            
+            # 删除源昵称
+            del data["records"][source_nickname]
+        
+        # 保存数据
+        self.save_data(data)
+        return True

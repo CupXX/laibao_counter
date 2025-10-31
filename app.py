@@ -547,7 +547,9 @@ def main():
                 
             except Exception as e:
                 st.error(f"导出数据失败: {str(e)}")
-
+        
+        st.markdown("---")
+        
         # 数据上传功能
         st.subheader("📤 上传数据")
         
