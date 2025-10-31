@@ -147,6 +147,8 @@ class ExcelProcessor:
                 cell = ws.cell(row=openpyxl_header_row, column=col_idx)
                 headers.append(cell.value)
             
+            print(f"[调试] 文件: {file_name}, 列名: {headers}")  # 调试信息
+            
             # 找到昵称列索引
             nickname_col = None
             for idx, header in enumerate(headers, 1):
@@ -158,8 +160,11 @@ class ExcelProcessor:
                 if nickname_col:
                     break
             
+            print(f"[调试] 昵称列索引: {nickname_col}")  # 调试信息
+            
             if nickname_col is None:
                 wb.close()
+                print(f"[调试] 未找到昵称列，返回空字典")  # 调试信息
                 return {}
             
             # 找到所有图片相关的列索引（排除"订正图片"）
@@ -169,8 +174,12 @@ class ExcelProcessor:
                     # 排除订正图片，只统计上传的截图
                     if '订正' not in str(header):
                         # 检查是否是编号的图片列（图片1, 图片2...）
-                        if re.search(r'图片\d+', str(header)):
+                        header_str = str(header).strip()
+                        if re.search(r'图片\d+', header_str):
                             image_cols.append(idx)
+                            print(f"[调试] 找到图片列: {header_str} (索引: {idx})")  # 调试信息
+            
+            print(f"[调试] 图片列索引: {image_cols}")  # 调试信息
             
             # 统计每行的图片数量
             nickname_image_count = {}
@@ -201,11 +210,16 @@ class ExcelProcessor:
                 else:
                     nickname_image_count[nickname] = image_count
             
+            print(f"[调试] 统计结果: {nickname_image_count}")  # 调试信息
+            
             wb.close()
             return nickname_image_count
             
         except Exception as e:
             # 如果统计失败，返回空字典（后续会使用默认码数1）
+            print(f"[调试] 统计图片数量时出错: {str(e)}")  # 调试信息
+            import traceback
+            traceback.print_exc()
             return {}
     
     def extract_nicknames_and_times_from_file(self, file_content, file_name: str) -> Tuple[List[str], List[str], List[int], str]:
