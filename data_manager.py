@@ -292,10 +292,12 @@ class DataManager:
         leaderboard = []
         
         for nickname, info in data["records"].items():
+            # 统计参与的不同文件数量（去重）
+            unique_files = set(file_record["file_name"] for file_record in info["files"])
             leaderboard.append({
                 "nickname": nickname,
                 "score": info["score"],
-                "participation_count": len(info["files"])  # 参与接龙次数：参与的文件数量
+                "participation_count": len(unique_files)  # 参与接龙次数：参与的不同文件数量
             })
         
         # 按积分降序排列
