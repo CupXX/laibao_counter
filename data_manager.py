@@ -192,13 +192,40 @@ class DataManager:
         else:
             data["records_by_nickname"] = records
         
-        # 记录已处理的文件（用于统计文件数，避免重复计数）
+        # 记录已处理的文件（保存统计信息，只在第一次保存时记录详细信息）
         if "processed_files" not in data:
             data["processed_files"] = {}
-        if file_name and file_name not in data["processed_files"]:
-            data["processed_files"][file_name] = {
-                "processed_date": datetime.now().isoformat()
-            }
+        
+        if file_name:
+            # 计算总积分
+            total_points = sum(base_score * w for w in weights)
+            total_points += len(reward_users) * avg_weight * base_score * (reward_multiplier - 1)
+            
+            # 如果文件不存在或需要更新信息
+            if file_name not in data["processed_files"]:
+                data["processed_files"][file_name] = {
+                    "processed_date": datetime.now().isoformat(),
+                    "nicknames_count": len(nicknames),
+                    "weight": weights[0] if len(set(weights)) == 1 else avg_weight,  # 统一码数或平均值
+                    "weights": weights,
+                    "base_score": base_score,
+                    "total_points": total_points,
+                    "reward_count": reward_count,
+                    "reward_multiplier": reward_multiplier,
+                    "rewarded_users": list(reward_users)
+                }
+            else:
+                # 文件已存在，更新信息（保留处理日期）
+                data["processed_files"][file_name].update({
+                    "nicknames_count": len(nicknames),
+                    "weight": weights[0] if len(set(weights)) == 1 else avg_weight,
+                    "weights": weights,
+                    "base_score": base_score,
+                    "total_points": total_points,
+                    "reward_count": reward_count,
+                    "reward_multiplier": reward_multiplier,
+                    "rewarded_users": list(reward_users)
+                })
         
         self.save_data(data)
         
@@ -522,20 +549,22 @@ class DataManager:
         
         files_list = []
         for file_name, info in processed_files.items():
-            files_list.append({
-                "file_name": file_name,
-                "processed_date": info["processed_date"],
-                "nicknames_count": info["nicknames_count"],
-                "weight": info.get("weight", 1),  # 向后兼容，默认为1
-                "base_score": info.get("base_score", 1.0),  # 向后兼容，默认为1.0
-                "total_points": info.get("total_points", info["nicknames_count"]),  # 向后兼容
-                "reward_count": info.get("reward_count", 0),  # 向后兼容，默认为0
-                "reward_multiplier": info.get("reward_multiplier", 1.0),  # 向后兼容，默认为1.0
-                "rewarded_users": info.get("rewarded_users", [])  # 向后兼容，默认为空列表
-            })
+            # 兼容新旧数据结构
+            if isinstance(info, dict) and "processed_date" in info:
+                files_list.append({
+                    "file_name": file_name,
+                    "processed_date": info.get("processed_date", ""),
+                    "nicknames_count": info.get("nicknames_count", 0),
+                    "weight": info.get("weight", 1),
+                    "base_score": info.get("base_score", 1.0),
+                    "total_points": info.get("total_points", 0),
+                    "reward_count": info.get("reward_count", 0),
+                    "reward_multiplier": info.get("reward_multiplier", 1.0),
+                    "rewarded_users": info.get("rewarded_users", [])
+                })
         
         # 按处理时间降序排列（最新的在前面）
-        files_list.sort(key=lambda x: x["processed_date"], reverse=True)
+        files_list.sort(key=lambda x: x.get("processed_date", ""), reverse=True)
         return files_list
     
     def get_all_nicknames(self) -> List[str]:
