@@ -113,13 +113,17 @@ class ExcelProcessor:
         从Excel文件内容中提取昵称和提交时间
         
         Args:
-            file_content: 文件内容（bytes）
+            file_content: 文件内容（bytes或file-like对象）
             file_name: 文件名
             
         Returns:
             (昵称列表, 提交时间列表, 错误信息)
         """
         try:
+            # 重置文件指针（如果是file-like对象）
+            if hasattr(file_content, 'seek'):
+                file_content.seek(0)
+            
             # 先尝试第1行为列名（header=0）
             if file_name.endswith('.xlsx'):
                 df = pd.read_excel(file_content, engine='openpyxl', header=0)
@@ -137,6 +141,10 @@ class ExcelProcessor:
             # 如果第1行作为列名找不到昵称列，尝试第2行作为列名（header=1）
             if nickname_column is None:
                 try:
+                    # 重置文件指针再次读取
+                    if hasattr(file_content, 'seek'):
+                        file_content.seek(0)
+                    
                     if file_name.endswith('.xlsx'):
                         df = pd.read_excel(file_content, engine='openpyxl', header=1)
                     elif file_name.endswith('.xls'):
@@ -144,7 +152,7 @@ class ExcelProcessor:
                     
                     if not df.empty:
                         nickname_column = self.find_nickname_column(df)
-                except:
+                except Exception as e:
                     pass
             
             # 如果还是找不到昵称列，返回错误
@@ -234,13 +242,17 @@ class ExcelProcessor:
         获取Excel文件基本信息
         
         Args:
-            file_content: 文件内容
+            file_content: 文件内容（bytes或file-like对象）
             file_name: 文件名
             
         Returns:
             文件信息字典
         """
         try:
+            # 重置文件指针（如果是file-like对象）
+            if hasattr(file_content, 'seek'):
+                file_content.seek(0)
+            
             # 先尝试第1行为列名（header=0）
             if file_name.endswith('.xlsx'):
                 df = pd.read_excel(file_content, engine='openpyxl', header=0)
@@ -254,6 +266,10 @@ class ExcelProcessor:
             # 如果第1行找不到昵称列，尝试第2行作为列名（header=1）
             if nickname_column is None:
                 try:
+                    # 重置文件指针再次读取
+                    if hasattr(file_content, 'seek'):
+                        file_content.seek(0)
+                    
                     if file_name.endswith('.xlsx'):
                         df = pd.read_excel(file_content, engine='openpyxl', header=1)
                     elif file_name.endswith('.xls'):
