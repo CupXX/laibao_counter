@@ -308,8 +308,9 @@ class DataManager:
             name_groups = {}
             for nickname, info in data["records"].items():
                 user_name = info.get("name", "")
-                if not user_name or user_name == "":
-                    user_name = nickname  # 如果没有姓名，使用昵称
+                # 如果没有姓名或姓名为空，使用昵称
+                if not user_name or user_name.strip() == "":
+                    user_name = nickname
                 
                 if user_name not in name_groups:
                     name_groups[user_name] = {
@@ -318,6 +319,7 @@ class DataManager:
                         "nicknames": []
                     }
                 
+                # 累加该姓名下所有昵称的积分
                 name_groups[user_name]["score"] += info["score"]
                 name_groups[user_name]["files"].extend(info["files"])
                 name_groups[user_name]["nicknames"].append(nickname)

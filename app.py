@@ -240,12 +240,25 @@ def process_uploaded_files(uploaded_files, file_weights=None):
             avg_images = sum(image_counts) / len(image_counts) if image_counts else 0
             total_images = sum(image_counts)
             with st.expander(f"✅ {uploaded_file.name} - 提取了 {len(nicknames)} 个昵称 (总图片数: {total_images})"):
-                st.write("提取的昵称和对应的图片数（码数）:")
-                nickname_df = pd.DataFrame({
+                st.write(f"提取的昵称和对应的图片数（码数）:")
+                # 构建显示数据
+                display_data = {
                     "昵称": nicknames,
                     "图片数(码数)": image_counts,
                     "积分": [base_score * count for count in image_counts]
-                })
+                }
+                # 如果有姓名数据，也显示姓名列
+                if names and any(name for name in names if name):
+                    display_data["姓名"] = names
+                    # 重新排序列：昵称、姓名、图片数、积分
+                    nickname_df = pd.DataFrame({
+                        "昵称": display_data["昵称"],
+                        "姓名": display_data["姓名"],
+                        "图片数(码数)": display_data["图片数(码数)"],
+                        "积分": display_data["积分"]
+                    })
+                else:
+                    nickname_df = pd.DataFrame(display_data)
                 st.dataframe(nickname_df, hide_index=True, height=300)
                 
                 # 显示积分计算信息
