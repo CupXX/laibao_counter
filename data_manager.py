@@ -54,16 +54,22 @@ class DataManager:
             with open(self.data_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
                 
-            # 确保数据结构包含所有必要字段（向后兼容）
+            # 确保数据结构包含所有必要字段
             if "processed_files" not in data:
                 data["processed_files"] = {}
+            # 新增：分别保存按昵称和按姓名统计的记录
+            if "records_by_nickname" not in data:
+                data["records_by_nickname"] = {}
+            if "records_by_name" not in data:
+                data["records_by_name"] = {}
                 
             return data
         except (FileNotFoundError, json.JSONDecodeError):
             # 如果文件不存在或损坏，返回默认结构
             return {
-                "records": {},
-                "processed_files": {},  # 新增：记录已处理的文件
+                "records_by_nickname": {},
+                "records_by_name": {},
+                "processed_files": {},
                 "last_updated": datetime.now().isoformat(),
                 "total_files_processed": 0
             }
@@ -95,7 +101,8 @@ class DataManager:
     
     def update_scores_with_rewards(self, nicknames: List[str], times: List[str], file_name: str = "", 
                                  weight: Union[int, List[int]] = 1, base_score: float = 1.0, 
-                                 reward_count: int = 0, reward_multiplier: float = 1.5, names: List[str] = None):
+                                 reward_count: int = 0, reward_multiplier: float = 1.5, names: List[str] = None,
+                                 group_by: str = "nickname"):
         """
         更新昵称积分（支持基于时间的奖励机制和每个昵称不同的码数）
         
@@ -107,74 +114,47 @@ class DataManager:
             base_score: 基础积分（默认为1.0）
             reward_count: 奖励人数（默认为0，不启用奖励）
             reward_multiplier: 奖励倍数（默认为1.5）
-            names: 姓名列表（可选，用于按姓名分组）
+            names: 姓名列表（可选）
+            group_by: 保存到哪个记录（"nickname"或"name"）
         """
         data = self.load_data()
         
-        # 确保processed_files字段存在
-        if "processed_files" not in data:
-            data["processed_files"] = {}
+        # 选择要更新的记录集
+        if group_by == "name":
+            records = data["records_by_name"]
+        else:
+            records = data["records_by_nickname"]
         
-        # 处理weight参数：可以是int或List[int]
+        # 处理weight参数
         if isinstance(weight, int):
-            # 统一码数：所有昵称使用相同的weight
             weights = [weight] * len(nicknames)
         else:
-            # 每个昵称不同的码数
             weights = weight
-            # 确保长度匹配
             if len(weights) != len(nicknames):
                 raise ValueError(f"weights长度({len(weights)})与nicknames长度({len(nicknames)})不匹配")
         
-        # 计算基础积分（暂时用平均weight计算，后面会用实际的weight）
+        # 计算基础积分
         avg_weight = sum(weights) / len(weights) if weights else 1
-        basic_points = base_score * avg_weight
         
         # 如果有奖励机制且提供了时间数据
         reward_users = set()
         if reward_count > 0 and times and any(t for t in times):
-            # 创建昵称-时间对，过滤掉空时间
             time_pairs = [(nickname, time_str) for nickname, time_str in zip(nicknames, times) 
                          if time_str and str(time_str).strip() and str(time_str) != 'nan']
             
             if time_pairs:
-                # 按时间排序（假设时间格式能够直接排序）
                 try:
                     time_pairs.sort(key=lambda x: str(x[1]))
-                    # 取前N名
                     reward_users = set([pair[0] for pair in time_pairs[:reward_count]])
                 except:
-                    # 如果排序失败，不给奖励
                     reward_users = set()
         
-        # 计算总积分
-        total_points = sum(base_score * w for w in weights)
-        total_points += len(reward_users) * avg_weight * base_score * (reward_multiplier - 1)
-        
-        # 记录已处理的文件（使用列表形式保存weights）
-        data["processed_files"][file_name] = {
-            "processed_date": datetime.now().isoformat(),
-            "nicknames_count": len(nicknames),
-            "weight": weight if isinstance(weight, int) else avg_weight,  # 向后兼容：保存int或平均值
-            "weights": weights,  # 新字段：保存每个昵称的码数列表
-            "base_score": base_score,
-            "total_points": total_points,
-            "reward_count": reward_count,
-            "reward_multiplier": reward_multiplier,
-            "rewarded_users": list(reward_users)
-        }
-        
-        # 处理names参数
-        if names is None:
-            names = [""] * len(nicknames)
-        
-        # 为每个昵称增加积分
+        # 为每个昵称/姓名增加积分
         for idx, nickname in enumerate(nicknames):
             if nickname.strip():
                 nickname = nickname.strip()
-                user_name = names[idx].strip() if idx < len(names) else ""
                 
-                # 获取该昵称的实际码数
+                # 获取该用户的实际码数
                 user_weight = weights[idx]
                 user_basic_points = base_score * user_weight
                 
@@ -184,32 +164,34 @@ class DataManager:
                 if is_rewarded:
                     user_points = reward_multiplier * user_basic_points
                 
-                if nickname in data["records"]:
-                    # 更新姓名（如果提供了新的姓名）
-                    if user_name and user_name != "":
-                        data["records"][nickname]["name"] = user_name
-                    data["records"][nickname]["score"] += user_points
-                    data["records"][nickname]["files"].append({
+                if nickname in records:
+                    records[nickname]["score"] += user_points
+                    records[nickname]["files"].append({
                         "file_name": file_name,
                         "date": datetime.now().isoformat(),
-                        "weight": user_weight,  # 使用该昵称的实际码数
+                        "weight": user_weight,
                         "base_score": base_score,
                         "points": user_points,
                         "is_rewarded": is_rewarded
                     })
                 else:
-                    data["records"][nickname] = {
-                        "name": user_name,  # 保存姓名
+                    records[nickname] = {
                         "score": user_points,
                         "files": [{
                             "file_name": file_name,
                             "date": datetime.now().isoformat(),
-                            "weight": user_weight,  # 使用该昵称的实际码数
+                            "weight": user_weight,
                             "base_score": base_score,
                             "points": user_points,
                             "is_rewarded": is_rewarded
                         }]
                     }
+        
+        # 更新对应的记录集
+        if group_by == "name":
+            data["records_by_name"] = records
+        else:
+            data["records_by_nickname"] = records
         
         data["total_files_processed"] += 1
         self.save_data(data)
@@ -291,23 +273,32 @@ class DataManager:
         
         self.save_data(data)
     
-    def get_leaderboard(self) -> List[Dict]:
+    def get_leaderboard(self, group_by: str = "nickname") -> List[Dict]:
         """
-        获取积分排行榜（直接返回数据库中的记录，不做动态分组）
+        获取积分排行榜（根据group_by选择使用哪份记录）
+        
+        Args:
+            group_by: "nickname"使用昵称记录，"name"使用姓名记录
         
         Returns:
             按积分降序排列的列表
         """
         data = self.load_data()
-        leaderboard = []
         
-        for nickname, info in data["records"].items():
+        # 选择使用哪份记录
+        if group_by == "name":
+            records = data["records_by_name"]
+        else:
+            records = data["records_by_nickname"]
+        
+        leaderboard = []
+        for nickname, info in records.items():
             # 统计参与的不同文件数量（去重）
             unique_files = set(file_record["file_name"] for file_record in info["files"])
             leaderboard.append({
                 "nickname": nickname,
                 "score": info["score"],
-                "participation_count": len(unique_files)  # 参与接龙次数：参与的不同文件数量
+                "participation_count": len(unique_files)
             })
         
         # 按积分降序排列

@@ -50,8 +50,9 @@ def display_statistics():
 def display_leaderboard():
     """显示积分排行榜"""
     
-    # 直接获取排行榜，不动态分组
-    leaderboard = st.session_state.data_manager.get_leaderboard()
+    # 根据选择的积分方式获取对应的排行榜
+    score_group_by = st.session_state.get('score_group_by', 'nickname')
+    leaderboard = st.session_state.data_manager.get_leaderboard(group_by=score_group_by)
     
     if not leaderboard:
         st.info("还没有积分记录，请先上传Excel文件。")
@@ -61,13 +62,16 @@ def display_leaderboard():
     df = pd.DataFrame(leaderboard)
     df.index = range(1, len(df) + 1)  # 从1开始的排名
     
+    # 根据选择的方式设置列名
+    first_column_name = '姓名' if score_group_by == 'name' else '昵称'
+    
     # 添加参与接龙次数（纯计数，不考虑权重和奖励）
     if 'participation_count' in df.columns:
         df = df[['nickname', 'score', 'participation_count']]
-        df.columns = ['昵称/姓名', '积分', '参与接龙次数']
+        df.columns = [first_column_name, '积分', '参与接龙次数']
     else:
         df = df[['nickname', 'score']]
-        df.columns = ['昵称/姓名', '积分']
+        df.columns = [first_column_name, '积分']
     
     # 使用列布局：左侧排行榜，右侧预留空间
     col1, col2 = st.columns([1, 1])  # 1:1的比例，各占50%宽度
@@ -176,36 +180,38 @@ def process_uploaded_files(uploaded_files, file_weights=None):
         
         if nicknames:
             # 现在nicknames、names、times、image_counts包含所有原始行数据（未去重）
-            # 根据当前选择的积分方式进行分组
+            # 需要分别按昵称和姓名分组，然后分别保存两份记录
             
-            # 获取积分统计方式
-            score_group_by = st.session_state.get('score_group_by', 'nickname')
-            
-            groups = {}
+            # 1. 按昵称分组
+            groups_by_nickname = {}
             for nickname, name, time_val, img_count in zip(nicknames, names, times, image_counts):
-                # 根据选择的积分方式决定分组key
-                if score_group_by == 'name':
-                    # 按姓名分组：使用姓名作为key，如果没有姓名则使用昵称
-                    key = name if name and name.strip() != "" else nickname
-                else:
-                    # 按昵称分组：使用昵称作为key
-                    key = nickname
-                
-                if key not in groups:
-                    groups[key] = {
-                        'name': name if name and name.strip() != "" else key,
-                        'time': time_val,  # 使用第一次出现的时间
+                if nickname not in groups_by_nickname:
+                    groups_by_nickname[nickname] = {
+                        'time': time_val,
                         'image_count': img_count
                     }
                 else:
-                    # 累加同一key的所有图片数
-                    groups[key]['image_count'] += img_count
+                    groups_by_nickname[nickname]['image_count'] += img_count
             
-            # 重新构建列表
-            nicknames = list(groups.keys())
-            names = [groups[key]['name'] for key in nicknames]
-            times = [groups[key]['time'] for key in nicknames]
-            image_counts = [groups[key]['image_count'] for key in nicknames]
+            nicknames_by_nick = list(groups_by_nickname.keys())
+            times_by_nick = [groups_by_nickname[key]['time'] for key in nicknames_by_nick]
+            image_counts_by_nick = [groups_by_nickname[key]['image_count'] for key in nicknames_by_nick]
+            
+            # 2. 按姓名分组
+            groups_by_name = {}
+            for nickname, name, time_val, img_count in zip(nicknames, names, times, image_counts):
+                key = name if name and name.strip() != "" else nickname
+                if key not in groups_by_name:
+                    groups_by_name[key] = {
+                        'time': time_val,
+                        'image_count': img_count
+                    }
+                else:
+                    groups_by_name[key]['image_count'] += img_count
+            
+            nicknames_by_name = list(groups_by_name.keys())
+            times_by_name = [groups_by_name[key]['time'] for key in nicknames_by_name]
+            image_counts_by_name = [groups_by_name[key]['image_count'] for key in nicknames_by_name]
             
             # 判断是新文件还是更新文件
             is_update = st.session_state.data_manager.is_file_processed(uploaded_file.name)
@@ -215,46 +221,22 @@ def process_uploaded_files(uploaded_files, file_weights=None):
             reward_count = st.session_state.get('reward_count', 0)
             reward_multiplier = st.session_state.get('reward_multiplier', 1.5)
             
+            # 同时保存两份记录：按昵称和按姓名
+            # 1. 保存按昵称的记录
+            st.session_state.data_manager.update_scores_with_rewards(
+                nicknames_by_nick, times_by_nick, uploaded_file.name, image_counts_by_nick, 
+                base_score, reward_count, reward_multiplier, None, "nickname"
+            )
+            
+            # 2. 保存按姓名的记录
+            rewarded_count = st.session_state.data_manager.update_scores_with_rewards(
+                nicknames_by_name, times_by_name, uploaded_file.name, image_counts_by_name, 
+                base_score, reward_count, reward_multiplier, None, "name"
+            )
+            
             if is_update:
-                # 更新已处理文件的积分
-                # 检查是否有奖励机制变化
-                processed_files = st.session_state.data_manager.get_processed_files()
-                historical_base_score = 1.0
-                historical_reward_count = 0
-                historical_reward_multiplier = 1.5
-                historical_weights = []
-                
-                for pf in processed_files:
-                    if pf['file_name'] == uploaded_file.name:
-                        historical_base_score = pf.get('base_score', 1.0)
-                        historical_reward_count = pf.get('reward_count', 0)
-                        historical_reward_multiplier = pf.get('reward_multiplier', 1.5)
-                        historical_weights = pf.get('weights', [])
-                        break
-                
-                # 检查是否有变化（奖励机制或码数）
-                reward_changed = (base_score != historical_base_score or 
-                                 reward_count != historical_reward_count or 
-                                 reward_multiplier != historical_reward_multiplier)
-                weights_changed = (image_counts != historical_weights)
-                
-                # 如果有任何变化，重新计算积分
-                if reward_changed or weights_changed:
-                    rewarded_count = st.session_state.data_manager.update_scores_with_rewards(
-                        nicknames, times, uploaded_file.name, image_counts, 
-                        base_score, reward_count, reward_multiplier, names
-                    )
-                    updated_files_count += 1
-                else:
-                    # 没有变化，跳过
-                    old_files_count += 1
-                    rewarded_count = 0
+                updated_files_count += 1
             else:
-                # 新文件，使用图片数量作为码数
-                rewarded_count = st.session_state.data_manager.update_scores_with_rewards(
-                    nicknames, times, uploaded_file.name, image_counts, 
-                    base_score, reward_count, reward_multiplier, names
-                )
                 new_files_count += 1
             
             successful_count += 1
@@ -489,9 +471,11 @@ def main():
             options=['nickname', 'name'],
             format_func=lambda x: '按昵称积分' if x == 'nickname' else '按姓名积分',
             index=0 if st.session_state.score_group_by == 'nickname' else 1,
-            help="按昵称：每个昵称独立统计；按姓名：同一姓名下的所有昵称积分合并。修改后需要重新上传文件才会生效。"
+            help="按昵称：每个昵称独立统计；按姓名：同一姓名下的所有昵称积分合并。切换后立即生效。"
         )
-        st.session_state.score_group_by = score_group_by
+        if score_group_by != st.session_state.score_group_by:
+            st.session_state.score_group_by = score_group_by
+            st.rerun()
         
         # 基础积分设置
         base_score = st.number_input(
