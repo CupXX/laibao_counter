@@ -10,8 +10,7 @@ import re
 class ExcelProcessor:
     # 常见的昵称/姓名列名关键词
     NICKNAME_KEYWORDS = [
-        '昵称', '姓名', '用户名', '名字', '用户', 'name', 'nickname', 
-        '微信昵称', '群昵称', '参与者', '打卡人', '用户昵称'
+        '昵称', '姓名'
     ]
     
     # 常见的时间列名关键词
@@ -121,21 +120,36 @@ class ExcelProcessor:
             (昵称列表, 提交时间列表, 错误信息)
         """
         try:
-            # 尝试读取Excel文件，指定第2行为列名（header=1，因为索引从0开始）
+            # 先尝试第1行为列名（header=0）
             if file_name.endswith('.xlsx'):
-                df = pd.read_excel(file_content, engine='openpyxl', header=1)
+                df = pd.read_excel(file_content, engine='openpyxl', header=0)
             elif file_name.endswith('.xls'):
-                df = pd.read_excel(file_content, engine='xlrd', header=1)
+                df = pd.read_excel(file_content, engine='xlrd', header=0)
             else:
-                return [], f"不支持的文件格式: {file_name}"
+                return [], [], f"不支持的文件格式: {file_name}"
             
             if df.empty:
-                return [], f"文件为空: {file_name}"
+                return [], [], f"文件为空: {file_name}"
             
             # 查找昵称列
             nickname_column = self.find_nickname_column(df)
+            
+            # 如果第1行作为列名找不到昵称列，尝试第2行作为列名（header=1）
             if nickname_column is None:
-                # 如果找不到昵称列，返回可用列名供用户参考
+                try:
+                    if file_name.endswith('.xlsx'):
+                        df = pd.read_excel(file_content, engine='openpyxl', header=1)
+                    elif file_name.endswith('.xls'):
+                        df = pd.read_excel(file_content, engine='xlrd', header=1)
+                    
+                    if not df.empty:
+                        nickname_column = self.find_nickname_column(df)
+                except:
+                    pass
+            
+            # 如果还是找不到昵称列，返回错误
+            if nickname_column is None:
+                # 返回可用列名供用户参考
                 available_columns = ", ".join(df.columns.tolist())
                 return [], [], f"未找到昵称列，可用列名: {available_columns}"
             
@@ -227,20 +241,33 @@ class ExcelProcessor:
             文件信息字典
         """
         try:
-            # 指定第2行为列名（header=1）
+            # 先尝试第1行为列名（header=0）
             if file_name.endswith('.xlsx'):
-                df = pd.read_excel(file_content, engine='openpyxl', header=1)
+                df = pd.read_excel(file_content, engine='openpyxl', header=0)
             elif file_name.endswith('.xls'):
-                df = pd.read_excel(file_content, engine='xlrd', header=1)
+                df = pd.read_excel(file_content, engine='xlrd', header=0)
             else:
                 return {"error": "不支持的文件格式"}
+            
+            nickname_column = self.find_nickname_column(df)
+            
+            # 如果第1行找不到昵称列，尝试第2行作为列名（header=1）
+            if nickname_column is None:
+                try:
+                    if file_name.endswith('.xlsx'):
+                        df = pd.read_excel(file_content, engine='openpyxl', header=1)
+                    elif file_name.endswith('.xls'):
+                        df = pd.read_excel(file_content, engine='xlrd', header=1)
+                    nickname_column = self.find_nickname_column(df)
+                except:
+                    pass
             
             return {
                 "file_name": file_name,
                 "total_rows": len(df),
                 "total_columns": len(df.columns),
                 "columns": df.columns.tolist(),
-                "nickname_column": self.find_nickname_column(df)
+                "nickname_column": nickname_column
             }
             
         except Exception as e:
