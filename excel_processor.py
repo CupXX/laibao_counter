@@ -3,8 +3,10 @@ Excel文件处理模块
 负责读取Excel文件并提取昵称数据
 """
 import pandas as pd
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Dict
 import re
+from openpyxl import load_workbook
+import io
 
 
 class ExcelProcessor:
@@ -108,16 +110,114 @@ class ExcelProcessor:
         
         return nickname
     
-    def extract_nicknames_and_times_from_file(self, file_content, file_name: str) -> Tuple[List[str], List[str], str]:
+    def count_images_in_excel(self, file_content, file_name: str, header_row: int = 0) -> Dict[str, int]:
         """
-        从Excel文件内容中提取昵称和提交时间
+        统计Excel文件中每个昵称对应的图片数量（码数）
+        
+        Args:
+            file_content: 文件内容（bytes或file-like对象）
+            file_name: 文件名
+            header_row: 列名所在行（0-based索引）
+            
+        Returns:
+            字典 {昵称: 图片数量}
+        """
+        try:
+            # 重置文件指针
+            if hasattr(file_content, 'seek'):
+                file_content.seek(0)
+            
+            # 如果是file-like对象，需要读取到BytesIO
+            if hasattr(file_content, 'read'):
+                content = file_content.read()
+                if hasattr(file_content, 'seek'):
+                    file_content.seek(0)  # 重置，供后续使用
+                file_obj = io.BytesIO(content)
+            else:
+                file_obj = io.BytesIO(file_content)
+            
+            # 使用openpyxl读取（支持超链接）
+            wb = load_workbook(file_obj, data_only=False)
+            ws = wb.active
+            
+            # 获取列名（header_row是0-based，但openpyxl使用1-based）
+            openpyxl_header_row = header_row + 1
+            headers = []
+            for col_idx in range(1, ws.max_column + 1):
+                cell = ws.cell(row=openpyxl_header_row, column=col_idx)
+                headers.append(cell.value)
+            
+            # 找到昵称列索引
+            nickname_col = None
+            for idx, header in enumerate(headers, 1):
+                if header:
+                    for keyword in self.NICKNAME_KEYWORDS:
+                        if keyword in str(header):
+                            nickname_col = idx
+                            break
+                if nickname_col:
+                    break
+            
+            if nickname_col is None:
+                wb.close()
+                return {}
+            
+            # 找到所有图片相关的列索引（排除"订正图片"）
+            image_cols = []
+            for idx, header in enumerate(headers, 1):
+                if header and '图片' in str(header):
+                    # 排除订正图片，只统计上传的截图
+                    if '订正' not in str(header):
+                        # 检查是否是编号的图片列（图片1, 图片2...）
+                        if re.search(r'图片\d+', str(header)):
+                            image_cols.append(idx)
+            
+            # 统计每行的图片数量
+            nickname_image_count = {}
+            for row_idx in range(openpyxl_header_row + 1, ws.max_row + 1):
+                # 获取昵称
+                nickname_cell = ws.cell(row=row_idx, column=nickname_col)
+                nickname_raw = nickname_cell.value
+                
+                if not nickname_raw:
+                    continue
+                
+                # 清理昵称
+                nickname = self.clean_nickname(nickname_raw)
+                if not nickname:
+                    continue
+                
+                # 统计该行的图片数量（只统计有超链接的）
+                image_count = 0
+                for col_idx in image_cols:
+                    cell = ws.cell(row=row_idx, column=col_idx)
+                    # 只有当单元格有超链接时，才算作有效图片
+                    if cell.hyperlink is not None:
+                        image_count += 1
+                
+                # 如果昵称已存在，取最大值（避免重复条目）
+                if nickname in nickname_image_count:
+                    nickname_image_count[nickname] = max(nickname_image_count[nickname], image_count)
+                else:
+                    nickname_image_count[nickname] = image_count
+            
+            wb.close()
+            return nickname_image_count
+            
+        except Exception as e:
+            # 如果统计失败，返回空字典（后续会使用默认码数1）
+            return {}
+    
+    def extract_nicknames_and_times_from_file(self, file_content, file_name: str) -> Tuple[List[str], List[str], List[int], str]:
+        """
+        从Excel文件内容中提取昵称、提交时间和图片数量（码数）
         
         Args:
             file_content: 文件内容（bytes或file-like对象）
             file_name: 文件名
             
         Returns:
-            (昵称列表, 提交时间列表, 错误信息)
+            (昵称列表, 提交时间列表, 图片数量列表, 错误信息)
         """
         try:
             # 重置文件指针（如果是file-like对象）
@@ -125,15 +225,16 @@ class ExcelProcessor:
                 file_content.seek(0)
             
             # 先尝试第1行为列名（header=0）
+            header_row = 0
             if file_name.endswith('.xlsx'):
                 df = pd.read_excel(file_content, engine='openpyxl', header=0)
             elif file_name.endswith('.xls'):
                 df = pd.read_excel(file_content, engine='xlrd', header=0)
             else:
-                return [], [], f"不支持的文件格式: {file_name}"
+                return [], [], [], f"不支持的文件格式: {file_name}"
             
             if df.empty:
-                return [], [], f"文件为空: {file_name}"
+                return [], [], [], f"文件为空: {file_name}"
             
             # 查找昵称列
             nickname_column = self.find_nickname_column(df)
@@ -145,6 +246,7 @@ class ExcelProcessor:
                     if hasattr(file_content, 'seek'):
                         file_content.seek(0)
                     
+                    header_row = 1
                     if file_name.endswith('.xlsx'):
                         df = pd.read_excel(file_content, engine='openpyxl', header=1)
                     elif file_name.endswith('.xls'):
@@ -159,7 +261,7 @@ class ExcelProcessor:
             if nickname_column is None:
                 # 返回可用列名供用户参考
                 available_columns = ", ".join(df.columns.tolist())
-                return [], [], f"未找到昵称列，可用列名: {available_columns}"
+                return [], [], [], f"未找到昵称列，可用列名: {available_columns}"
             
             # 查找时间列
             time_column = self.find_time_column(df)
@@ -168,9 +270,13 @@ class ExcelProcessor:
             nicknames_raw = df[nickname_column].tolist()
             times_raw = df[time_column].tolist() if time_column else [None] * len(nicknames_raw)
             
-            # 清理和去重，同时保持昵称和时间的对应关系
+            # 统计图片数量（码数）
+            nickname_image_count = self.count_images_in_excel(file_content, file_name, header_row)
+            
+            # 清理和去重，同时保持昵称、时间和图片数量的对应关系
             nicknames_clean = []
             times_clean = []
+            image_counts = []
             seen = set()
             
             for nickname, time_val in zip(nicknames_raw, times_raw):
@@ -178,12 +284,15 @@ class ExcelProcessor:
                 if clean_name and clean_name not in seen and len(clean_name) > 0:
                     nicknames_clean.append(clean_name)
                     times_clean.append(str(time_val) if time_val is not None else "")
+                    # 获取该昵称的图片数量，如果没有则默认为1
+                    image_count = nickname_image_count.get(clean_name, 1)
+                    image_counts.append(image_count)
                     seen.add(clean_name)
             
-            return nicknames_clean, times_clean, ""
+            return nicknames_clean, times_clean, image_counts, ""
             
         except Exception as e:
-            return [], [], f"处理文件 {file_name} 时出错: {str(e)}"
+            return [], [], [], f"处理文件 {file_name} 时出错: {str(e)}"
     
     def extract_nicknames_from_file(self, file_content, file_name: str) -> Tuple[List[str], str]:
         """
@@ -196,7 +305,7 @@ class ExcelProcessor:
         Returns:
             (昵称列表, 错误信息)
         """
-        nicknames, _, error = self.extract_nicknames_and_times_from_file(file_content, file_name)
+        nicknames, _, _, error = self.extract_nicknames_and_times_from_file(file_content, file_name)
         return nicknames, error
     
     def batch_process_files(self, uploaded_files) -> Tuple[List[Tuple[str, List[str]]], List[str]]:

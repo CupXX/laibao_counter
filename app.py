@@ -139,12 +139,9 @@ def display_leaderboard():
             )
 
 def process_uploaded_files(uploaded_files, file_weights=None):
-    """处理上传的文件"""
+    """处理上传的文件（file_weights参数已废弃，保留仅为向后兼容）"""
     if not uploaded_files:
         return
-    
-    if file_weights is None:
-        file_weights = {file.name: 1 for file in uploaded_files}
     
     progress_bar = st.progress(0)
     status_text = st.empty()
@@ -162,58 +159,13 @@ def process_uploaded_files(uploaded_files, file_weights=None):
         progress_bar.progress(progress)
         status_text.text(f"正在处理: {uploaded_file.name} ({i+1}/{total_files})")
         
-        # 检查是否已经处理过，以及码数或奖励机制是否有变化
-        is_processed = st.session_state.data_manager.is_file_processed(uploaded_file.name)
-        if is_processed:
-            # 获取文件的当前码数和历史码数
-            current_weight = file_weights.get(uploaded_file.name, 1)
-            processed_files = st.session_state.data_manager.get_processed_files()
-            historical_weight = 1
-            historical_base_score = 1.0
-            historical_reward_count = 0
-            historical_reward_multiplier = 1.5
-            
-            for pf in processed_files:
-                if pf['file_name'] == uploaded_file.name:
-                    historical_weight = pf.get('weight', 1)
-                    historical_base_score = pf.get('base_score', 1.0)
-                    historical_reward_count = pf.get('reward_count', 0)
-                    historical_reward_multiplier = pf.get('reward_multiplier', 1.5)
-                    break
-            
-            # 获取当前奖励设置
-            current_base_score = st.session_state.get('base_score', 1.0)
-            current_reward_count = st.session_state.get('reward_count', 0)
-            current_reward_multiplier = st.session_state.get('reward_multiplier', 1.5)
-            
-            # 检查是否有变化
-            weight_changed = current_weight != historical_weight
-            reward_changed = (current_base_score != historical_base_score or 
-                            current_reward_count != historical_reward_count or 
-                            current_reward_multiplier != historical_reward_multiplier)
-            
-            # 如果码数和奖励机制都没有变化，跳过处理
-            if not weight_changed and not reward_changed:
-                old_files_count += 1
-                st.info(f"⏭️ {uploaded_file.name} - 已处理过，码数和奖励机制未变化，跳过")
-                continue
-            else:
-                # 有变化，显示变化信息
-                changes = []
-                if weight_changed:
-                    changes.append(f"码数: {historical_weight} → {current_weight}")
-                if reward_changed:
-                    changes.append(f"奖励机制: {historical_base_score}/{historical_reward_count}/{historical_reward_multiplier} → {current_base_score}/{current_reward_count}/{current_reward_multiplier}")
-                st.info(f"🔄 {uploaded_file.name} - 检测到变化: {', '.join(changes)}")
-                updated_files_count += 1
-        
         # 验证文件格式
         if not st.session_state.excel_processor.validate_file_format(uploaded_file.name):
             st.error(f"不支持的文件格式: {uploaded_file.name}")
             continue
         
-        # 处理文件，提取昵称和时间
-        nicknames, times, error_msg = st.session_state.excel_processor.extract_nicknames_and_times_from_file(
+        # 处理文件，提取昵称、时间和图片数量（码数）
+        nicknames, times, image_counts, error_msg = st.session_state.excel_processor.extract_nicknames_and_times_from_file(
             uploaded_file, uploaded_file.name
         )
         
@@ -222,8 +174,8 @@ def process_uploaded_files(uploaded_files, file_weights=None):
             continue
         
         if nicknames:
-            # 获取该文件的码数
-            weight = file_weights.get(uploaded_file.name, 1)
+            # 使用图片数量作为每个昵称的码数（不再使用统一的文件码数）
+            # image_counts 是一个列表，每个昵称对应一个码数
             
             # 判断是新文件还是更新文件
             is_update = st.session_state.data_manager.is_file_processed(uploaded_file.name)
@@ -234,65 +186,70 @@ def process_uploaded_files(uploaded_files, file_weights=None):
             reward_multiplier = st.session_state.get('reward_multiplier', 1.5)
             
             if is_update:
-                # 更新已处理文件的积分（支持码数和奖励机制更新）
+                # 更新已处理文件的积分
                 # 检查是否有奖励机制变化
                 processed_files = st.session_state.data_manager.get_processed_files()
                 historical_base_score = 1.0
                 historical_reward_count = 0
                 historical_reward_multiplier = 1.5
+                historical_weights = []
                 
                 for pf in processed_files:
                     if pf['file_name'] == uploaded_file.name:
                         historical_base_score = pf.get('base_score', 1.0)
                         historical_reward_count = pf.get('reward_count', 0)
                         historical_reward_multiplier = pf.get('reward_multiplier', 1.5)
+                        historical_weights = pf.get('weights', [])
                         break
                 
-                # 如果奖励机制有变化，使用新的奖励机制重新计算
-                if (base_score != historical_base_score or 
-                    reward_count != historical_reward_count or 
-                    reward_multiplier != historical_reward_multiplier):
-                    # 使用新的奖励机制重新计算
+                # 检查是否有变化（奖励机制或码数）
+                reward_changed = (base_score != historical_base_score or 
+                                 reward_count != historical_reward_count or 
+                                 reward_multiplier != historical_reward_multiplier)
+                weights_changed = (image_counts != historical_weights)
+                
+                # 如果有任何变化，重新计算积分
+                if reward_changed or weights_changed:
                     rewarded_count = st.session_state.data_manager.update_scores_with_rewards(
-                        nicknames, times, uploaded_file.name, weight, 
+                        nicknames, times, uploaded_file.name, image_counts, 
                         base_score, reward_count, reward_multiplier
                     )
+                    updated_files_count += 1
                 else:
-                    # 只有码数变化，使用原有方法
-                    st.session_state.data_manager.update_existing_file_scores(nicknames, uploaded_file.name, weight)
+                    # 没有变化，跳过
+                    old_files_count += 1
                     rewarded_count = 0
-                
-                updated_files_count += 1
             else:
-                # 新文件，使用新的积分计算和奖励机制
+                # 新文件，使用图片数量作为码数
                 rewarded_count = st.session_state.data_manager.update_scores_with_rewards(
-                    nicknames, times, uploaded_file.name, weight, 
+                    nicknames, times, uploaded_file.name, image_counts, 
                     base_score, reward_count, reward_multiplier
                 )
                 new_files_count += 1
             
             successful_count += 1
             total_new_nicknames += len(nicknames)
-            total_weighted_points += len(nicknames) * weight
+            total_weighted_points += sum(image_counts)  # 总码数是每个人的码数之和
             
             # 显示文件处理结果
-            weight_info = f" (码数: {weight})" if weight != 1 else ""
-            basic_score = base_score * weight
-            with st.expander(f"✅ {uploaded_file.name} - 提取了 {len(nicknames)} 个昵称{weight_info}"):
-                st.write("提取的昵称:")
-                nickname_df = pd.DataFrame({"昵称": nicknames})
+            avg_images = sum(image_counts) / len(image_counts) if image_counts else 0
+            total_images = sum(image_counts)
+            with st.expander(f"✅ {uploaded_file.name} - 提取了 {len(nicknames)} 个昵称 (总图片数: {total_images})"):
+                st.write("提取的昵称和对应的图片数（码数）:")
+                nickname_df = pd.DataFrame({
+                    "昵称": nicknames,
+                    "图片数(码数)": image_counts,
+                    "积分": [base_score * count for count in image_counts]
+                })
                 st.dataframe(nickname_df, hide_index=True, height=300)
                 
                 # 显示积分计算信息
-                st.info(f"💰 基础积分: {base_score} × 码数: {weight} = {basic_score} 分/人")
+                st.info(f"💰 基础积分: {base_score} 分/图片")
+                st.info(f"📷 平均图片数: {avg_images:.2f} 张/人")
                 if rewarded_count > 0:
-                    reward_score = reward_multiplier * basic_score
-                    st.success(f"🏆 前 {rewarded_count} 名获得奖励: {reward_score} 分/人 (奖励倍数: {reward_multiplier}x)")
-                    total_points = (len(nicknames) - rewarded_count) * basic_score + rewarded_count * reward_score
-                    st.info(f"📊 本文件总积分: {total_points} 分")
-                else:
-                    total_points = len(nicknames) * basic_score
-                    st.info(f"📊 本文件总积分: {total_points} 分")
+                    st.success(f"🏆 前 {rewarded_count} 名获得奖励倍数: {reward_multiplier}x")
+                total_points = sum(base_score * count for count in image_counts)
+                st.info(f"📊 本文件总积分: {total_points} 分")
         else:
             st.warning(f"文件 {uploaded_file.name} 中没有找到有效的昵称数据")
     
@@ -366,10 +323,10 @@ def main():
         st.markdown("""
         <div style="font-size: 22px; line-height: 1.8;">
         1. <strong>设置奖励机制</strong>: 在左侧侧边栏，设置基础积分、奖励人数、奖励倍数。<br>
-        2. <strong>导出数据</strong>: 在来豹接龙小程序中，导出数据（不要插入图片！！），可以参考右图，时间选择全部。<br>
-        3. <strong>上传Excel文件</strong>:将导出的Excel文件拖到下方，上传接龙数据。（支持多个文件同时上传）<br>
-        4. <strong>设置码数</strong>: 设置每个接龙的码数，默认为1，可自行修改，设置好后点击开始处理按钮，即可自动计算积分。<br>
-        5. <strong>查看排行榜</strong>: 在主页面下方可查看积分排行榜和已处理文件列表。<br>
+        2. <strong>导出数据</strong>: 在来豹接龙小程序中，导出数据，时间选择全部（参考右图）。<br>
+        3. <strong>上传Excel文件</strong>: 将导出的Excel文件拖到下方上传。（支持多个文件同时上传）<br>
+        4. <strong>自动计算码数</strong>: 系统会自动根据每个人上传的图片数量计算码数，点击开始处理按钮即可自动统计积分。<br>
+        5. <strong>查看排行榜</strong>: 在主页面下方可查看积分排行榜和已处理文件列表，每个人的码数根据图片数量决定。<br>
         6. <strong>下载积分表格</strong>: 点击积分排行榜右上方的下载按钮可以下载当前的排行榜数据。<br>
         7. <strong>备份数据</strong>: 在左侧侧边栏，点击【下载我的数据】，即可备份所有处理历史记录，保存为json文件。<br>
         8. <strong>上传数据</strong>: 再次使用时，把保存的json文件拖到【上传数据】区域，即可上传之前备份的数据，继续编辑。
@@ -413,70 +370,29 @@ def main():
             if is_processed:
                 old_file_count += 1
                 status = "🔄 已处理"
-                # 获取已处理文件的历史码数
-                processed_files = st.session_state.data_manager.get_processed_files()
-                historical_weight = 1
-                for pf in processed_files:
-                    if pf['file_name'] == file.name:
-                        historical_weight = pf.get('weight', 1)
-                        break
-                default_weight = historical_weight
             else:
                 new_file_count += 1
                 status = "🆕 新文件"
-                default_weight = 1
                 
             file_info.append({
                 "序号": i,
                 "文件名": file.name,
                 "大小": f"{file_size:.1f} KB",
-                "状态": status,
-                "码数": default_weight
+                "状态": status
             })
         
         file_df = pd.DataFrame(file_info)
         
-        # 使用可编辑的数据表格，让用户能修改码数
+        # 显示文件列表
         st.write("💡 提示：")
-        st.write("- 如果上传已处理文件：可重新修改码数或奖励机制，如有变化将重新计算积分")
+        st.write("- 系统会自动根据每个人上传的图片数量计算码数")
+        st.write("- 如果上传已处理文件且奖励机制有变化，将重新计算积分")
         
-        edited_df = st.data_editor(
+        st.dataframe(
             file_df,
             use_container_width=True,
             hide_index=True,
-            height=min(400, len(uploaded_files) * 35 + 50),
-            column_config={
-                "序号": st.column_config.NumberColumn(
-                    "序号",
-                    disabled=True,
-                    width="small"
-                ),
-                "文件名": st.column_config.TextColumn(
-                    "文件名",
-                    disabled=True,
-                    width="large"
-                ),
-                "大小": st.column_config.TextColumn(
-                    "大小",
-                    disabled=True,
-                    width="small"
-                ),
-                "状态": st.column_config.TextColumn(
-                    "状态",
-                    disabled=True,
-                    width="small"
-                ),
-                "码数": st.column_config.NumberColumn(
-                    "码数",
-                    help="积分倍数，必须是正整数",
-                    min_value=1,
-                    max_value=100,
-                    step=1,
-                    format="%d",
-                    width="small"
-                )
-            },
-            disabled=["序号", "文件名", "大小", "状态"]
+            height=min(400, len(uploaded_files) * 35 + 50)
         )
         
         # 显示统计信息
@@ -489,12 +405,8 @@ def main():
             st.metric("总计", len(uploaded_files))
         
         if st.button("🚀 开始处理", type="primary"):
-            # 创建文件和码数的映射
-            file_weights = {}
-            for _, row in edited_df.iterrows():
-                file_weights[row["文件名"]] = int(row["码数"])
-            
-            process_uploaded_files(uploaded_files, file_weights)
+            # 直接处理文件，不需要手动设置码数（自动从图片数量获取）
+            process_uploaded_files(uploaded_files, file_weights=None)
             st.session_state.files_processed = True
             # 重置文件上传器
             st.session_state.uploaded_files_key += 1

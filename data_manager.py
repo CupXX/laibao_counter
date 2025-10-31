@@ -6,7 +6,7 @@ import json
 import os
 import uuid
 import time
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 from datetime import datetime, timedelta
 
 
@@ -94,16 +94,16 @@ class DataManager:
         return file_name in processed_files
     
     def update_scores_with_rewards(self, nicknames: List[str], times: List[str], file_name: str = "", 
-                                 weight: int = 1, base_score: float = 1.0, 
+                                 weight: Union[int, List[int]] = 1, base_score: float = 1.0, 
                                  reward_count: int = 0, reward_multiplier: float = 1.5):
         """
-        更新昵称积分（支持基于时间的奖励机制）
+        更新昵称积分（支持基于时间的奖励机制和每个昵称不同的码数）
         
         Args:
             nicknames: 昵称列表
             times: 对应的提交时间列表
             file_name: 文件名（用于记录）
-            weight: 积分权重/码数（默认为1）
+            weight: 积分权重/码数，可以是int（统一码数）或List[int]（每个昵称不同的码数）
             base_score: 基础积分（默认为1.0）
             reward_count: 奖励人数（默认为0，不启用奖励）
             reward_multiplier: 奖励倍数（默认为1.5）
@@ -114,8 +114,20 @@ class DataManager:
         if "processed_files" not in data:
             data["processed_files"] = {}
         
-        # 计算基础积分
-        basic_points = base_score * weight
+        # 处理weight参数：可以是int或List[int]
+        if isinstance(weight, int):
+            # 统一码数：所有昵称使用相同的weight
+            weights = [weight] * len(nicknames)
+        else:
+            # 每个昵称不同的码数
+            weights = weight
+            # 确保长度匹配
+            if len(weights) != len(nicknames):
+                raise ValueError(f"weights长度({len(weights)})与nicknames长度({len(nicknames)})不匹配")
+        
+        # 计算基础积分（暂时用平均weight计算，后面会用实际的weight）
+        avg_weight = sum(weights) / len(weights) if weights else 1
+        basic_points = base_score * avg_weight
         
         # 如果有奖励机制且提供了时间数据
         reward_users = set()
@@ -134,35 +146,44 @@ class DataManager:
                     # 如果排序失败，不给奖励
                     reward_users = set()
         
-        # 记录已处理的文件
+        # 计算总积分
+        total_points = sum(base_score * w for w in weights)
+        total_points += len(reward_users) * avg_weight * base_score * (reward_multiplier - 1)
+        
+        # 记录已处理的文件（使用列表形式保存weights）
         data["processed_files"][file_name] = {
             "processed_date": datetime.now().isoformat(),
             "nicknames_count": len(nicknames),
-            "weight": weight,
+            "weight": weight if isinstance(weight, int) else avg_weight,  # 向后兼容：保存int或平均值
+            "weights": weights,  # 新字段：保存每个昵称的码数列表
             "base_score": base_score,
-            "total_points": len(nicknames) * basic_points + len(reward_users) * (reward_multiplier - 1) * basic_points,
+            "total_points": total_points,
             "reward_count": reward_count,
             "reward_multiplier": reward_multiplier,
             "rewarded_users": list(reward_users)
         }
         
         # 为每个昵称增加积分
-        for nickname in nicknames:
+        for idx, nickname in enumerate(nicknames):
             if nickname.strip():
                 nickname = nickname.strip()
                 
+                # 获取该昵称的实际码数
+                user_weight = weights[idx]
+                user_basic_points = base_score * user_weight
+                
                 # 计算该用户获得的积分
-                user_points = basic_points
+                user_points = user_basic_points
                 is_rewarded = nickname in reward_users
                 if is_rewarded:
-                    user_points = reward_multiplier * basic_points
+                    user_points = reward_multiplier * user_basic_points
                 
                 if nickname in data["records"]:
                     data["records"][nickname]["score"] += user_points
                     data["records"][nickname]["files"].append({
                         "file_name": file_name,
                         "date": datetime.now().isoformat(),
-                        "weight": weight,
+                        "weight": user_weight,  # 使用该昵称的实际码数
                         "base_score": base_score,
                         "points": user_points,
                         "is_rewarded": is_rewarded
@@ -173,7 +194,7 @@ class DataManager:
                         "files": [{
                             "file_name": file_name,
                             "date": datetime.now().isoformat(),
-                            "weight": weight,
+                            "weight": user_weight,  # 使用该昵称的实际码数
                             "base_score": base_score,
                             "points": user_points,
                             "is_rewarded": is_rewarded
