@@ -175,6 +175,8 @@ class ExcelProcessor:
             
             # 统计每行的图片数量
             nickname_image_count = {}
+            debug_info = {}  # 临时调试信息
+            
             for row_idx in range(openpyxl_header_row + 1, ws.max_row + 1):
                 # 获取昵称
                 nickname_cell = ws.cell(row=row_idx, column=nickname_col)
@@ -196,11 +198,22 @@ class ExcelProcessor:
                     if cell.hyperlink is not None:
                         image_count += 1
                 
+                # 记录调试信息
+                if nickname not in debug_info:
+                    debug_info[nickname] = []
+                debug_info[nickname].append(f"第{row_idx}行: {image_count}张")
+                
                 # 如果昵称已存在，累加图片数（同一个人在多行的图片数相加）
                 if nickname in nickname_image_count:
                     nickname_image_count[nickname] += image_count
                 else:
                     nickname_image_count[nickname] = image_count
+            
+            # 打印调试信息（只显示有多行的昵称）
+            print(f"\n=== 文件 {file_name} 的图片统计 ===")
+            for nickname, details in debug_info.items():
+                if len(details) > 1:  # 只显示出现多次的昵称
+                    print(f"  {nickname}: {', '.join(details)} → 总计: {nickname_image_count[nickname]}张")
             
             wb.close()
             return nickname_image_count
