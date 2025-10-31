@@ -179,8 +179,39 @@ def process_uploaded_files(uploaded_files, file_weights=None):
             continue
         
         if nicknames:
-            # 使用图片数量作为每个昵称的码数（不再使用统一的文件码数）
-            # image_counts 是一个列表，每个昵称对应一个码数
+            # 现在nicknames、names、times、image_counts包含所有原始行数据（未去重）
+            # 需要根据积分统计方式进行分组
+            
+            # 获取积分统计方式
+            score_group_by = st.session_state.get('score_group_by', 'nickname')
+            
+            # 根据不同的统计方式进行分组
+            groups = {}
+            for nickname, name, time_val, img_count in zip(nicknames, names, times, image_counts):
+                # 决定分组的key
+                if score_group_by == 'name':
+                    # 按姓名分组：使用姓名作为key，如果没有姓名则使用昵称
+                    key = name if name and name.strip() != "" else nickname
+                else:
+                    # 按昵称分组：使用昵称作为key
+                    key = nickname
+                
+                if key not in groups:
+                    groups[key] = {
+                        'nickname': nickname,  # 保留原始昵称（用于记录）
+                        'name': name if name and name.strip() != "" else nickname,
+                        'time': time_val,  # 使用第一次出现的时间
+                        'image_count': img_count  # 初始化为第一次的图片数
+                    }
+                else:
+                    # 无论按昵称还是按姓名，都累加同一key的所有图片数
+                    groups[key]['image_count'] += img_count
+            
+            # 重新构建列表
+            nicknames = [groups[key]['nickname'] if score_group_by == 'nickname' else key for key in groups.keys()]
+            names = [groups[key]['name'] for key in groups.keys()]
+            times = [groups[key]['time'] for key in groups.keys()]
+            image_counts = [groups[key]['image_count'] for key in groups.keys()]
             
             # 判断是新文件还是更新文件
             is_update = st.session_state.data_manager.is_file_processed(uploaded_file.name)
@@ -340,7 +371,8 @@ def main():
     with col1:
         st.markdown("""
         <div style="font-size: 22px; line-height: 1.8;">
-        1. <strong>设置奖励机制</strong>: 在左侧侧边栏，设置基础积分、奖励人数、奖励倍数。<br>
+        1. <strong>基础设置</strong>: 在左侧侧边栏，设置按积分还是按姓名积分，以及每一个码的基础积分。<br>
+        2. <strong>设置奖励人数</strong>: 在左侧侧边栏，设置奖励人数、奖励倍数。<br>
         2. <strong>导出数据</strong>: 在来豹接龙小程序中，导出数据，时间选择全部（参考右图）。<br>
         3. <strong>上传Excel文件</strong>: 将导出的Excel文件拖到下方上传。（支持多个文件同时上传）<br>
         4. <strong>自动计算码数</strong>: 系统会自动根据每个人上传的图片数量计算码数，点击开始处理按钮即可自动统计积分。<br>

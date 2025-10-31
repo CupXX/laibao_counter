@@ -141,9 +141,9 @@ class ExcelProcessor:
         
         return nickname
     
-    def count_images_in_excel(self, file_content, file_name: str, header_row: int = 0) -> Dict[str, int]:
+    def count_images_in_excel(self, file_content, file_name: str, header_row: int = 0) -> Dict[int, int]:
         """
-        统计Excel文件中每个昵称对应的图片数量（码数）
+        统计Excel文件中每一行的图片数量（码数）
         
         Args:
             file_content: 文件内容（bytes或file-like对象）
@@ -151,7 +151,7 @@ class ExcelProcessor:
             header_row: 列名所在行（0-based索引）
             
         Returns:
-            字典 {昵称: 图片数量}
+            字典 {行号: 图片数量}（行号是pandas DataFrame的索引，0-based）
         """
         try:
             # 重置文件指针
@@ -204,22 +204,10 @@ class ExcelProcessor:
                         if re.search(r'图片\d+', header_str):
                             image_cols.append(idx)
             
-            # 统计每行的图片数量
-            nickname_image_count = {}
+            # 统计每行的图片数量（不按昵称累加，保留每行的原始数据）
+            row_image_count = {}
             
             for row_idx in range(openpyxl_header_row + 1, ws.max_row + 1):
-                # 获取昵称
-                nickname_cell = ws.cell(row=row_idx, column=nickname_col)
-                nickname_raw = nickname_cell.value
-                
-                if not nickname_raw:
-                    continue
-                
-                # 清理昵称
-                nickname = self.clean_nickname(nickname_raw)
-                if not nickname:
-                    continue
-                
                 # 统计该行的图片数量（只统计有超链接的）
                 image_count = 0
                 for col_idx in image_cols:
@@ -228,14 +216,13 @@ class ExcelProcessor:
                     if cell.hyperlink is not None:
                         image_count += 1
                 
-                # 如果昵称已存在，累加图片数（同一个人在多行的图片数相加）
-                if nickname in nickname_image_count:
-                    nickname_image_count[nickname] += image_count
-                else:
-                    nickname_image_count[nickname] = image_count
+                # 保存该行的图片数（row_idx是openpyxl的行号，需要转换为DataFrame的索引）
+                # openpyxl行号从1开始，减去header_row+1得到DataFrame的0-based索引
+                df_row_idx = row_idx - openpyxl_header_row - 1
+                row_image_count[df_row_idx] = image_count
             
             wb.close()
-            return nickname_image_count
+            return row_image_count
             
         except Exception as e:
             # 如果统计失败，返回空字典（后续会使用默认码数1）
@@ -307,28 +294,27 @@ class ExcelProcessor:
             names_raw = df[name_column].tolist() if name_column else [""] * len(nicknames_raw)
             times_raw = df[time_column].tolist() if time_column else [None] * len(nicknames_raw)
             
-            # 统计图片数量（码数）
-            nickname_image_count = self.count_images_in_excel(file_content, file_name, header_row)
+            # 统计每行的图片数量（码数）
+            row_image_count = self.count_images_in_excel(file_content, file_name, header_row)
             
-            # 清理和去重，同时保持昵称、姓名、时间和图片数量的对应关系
+            # 清理数据，保持昵称、姓名、时间和图片数量的对应关系
+            # 注意：这里不去重，保留所有原始记录，让app.py根据需要决定如何分组
             nicknames_clean = []
             names_clean = []
             times_clean = []
             image_counts = []
-            seen = set()
             
-            for nickname, name, time_val in zip(nicknames_raw, names_raw, times_raw):
+            for row_idx, (nickname, name, time_val) in enumerate(zip(nicknames_raw, names_raw, times_raw)):
                 clean_nickname = self.clean_nickname(nickname)
-                if clean_nickname and clean_nickname not in seen and len(clean_nickname) > 0:
+                if clean_nickname and len(clean_nickname) > 0:
                     clean_name = self.clean_nickname(name) if name and str(name) != 'nan' else ""
                     
                     nicknames_clean.append(clean_nickname)
                     names_clean.append(clean_name)
                     times_clean.append(str(time_val) if time_val is not None else "")
-                    # 获取该昵称的图片数量，如果没有则默认为1
-                    image_count = nickname_image_count.get(clean_nickname, 1)
+                    # 获取该行的图片数量（每一行独立统计）
+                    image_count = row_image_count.get(row_idx, 1)
                     image_counts.append(image_count)
-                    seen.add(clean_nickname)
             
             return nicknames_clean, names_clean, times_clean, image_counts, ""
             
