@@ -50,7 +50,9 @@ def display_statistics():
 def display_leaderboard():
     """显示积分排行榜"""
     
-    leaderboard = st.session_state.data_manager.get_leaderboard()
+    # 获取分组方式
+    group_by = st.session_state.get('score_group_by', 'nickname')
+    leaderboard = st.session_state.data_manager.get_leaderboard(group_by=group_by)
     
     if not leaderboard:
         st.info("还没有积分记录，请先上传Excel文件。")
@@ -60,13 +62,16 @@ def display_leaderboard():
     df = pd.DataFrame(leaderboard)
     df.index = range(1, len(df) + 1)  # 从1开始的排名
     
+    # 根据分组方式设置列名
+    first_column_name = '姓名' if group_by == 'name' else '昵称'
+    
     # 添加参与接龙次数（纯计数，不考虑权重和奖励）
     if 'participation_count' in df.columns:
         df = df[['nickname', 'score', 'participation_count']]
-        df.columns = ['昵称', '积分', '参与接龙次数']
+        df.columns = [first_column_name, '积分', '参与接龙次数']
     else:
         df = df[['nickname', 'score']]
-        df.columns = ['昵称', '积分']
+        df.columns = [first_column_name, '积分']
     
     # 使用列布局：左侧排行榜，右侧预留空间
     col1, col2 = st.columns([1, 1])  # 1:1的比例，各占50%宽度
@@ -164,8 +169,8 @@ def process_uploaded_files(uploaded_files, file_weights=None):
             st.error(f"不支持的文件格式: {uploaded_file.name}")
             continue
         
-        # 处理文件，提取昵称、时间和图片数量（码数）
-        nicknames, times, image_counts, error_msg = st.session_state.excel_processor.extract_nicknames_and_times_from_file(
+        # 处理文件，提取昵称、姓名、时间和图片数量（码数）
+        nicknames, names, times, image_counts, error_msg = st.session_state.excel_processor.extract_nicknames_and_times_from_file(
             uploaded_file, uploaded_file.name
         )
         
@@ -212,7 +217,7 @@ def process_uploaded_files(uploaded_files, file_weights=None):
                 if reward_changed or weights_changed:
                     rewarded_count = st.session_state.data_manager.update_scores_with_rewards(
                         nicknames, times, uploaded_file.name, image_counts, 
-                        base_score, reward_count, reward_multiplier
+                        base_score, reward_count, reward_multiplier, names
                     )
                     updated_files_count += 1
                 else:
@@ -223,7 +228,7 @@ def process_uploaded_files(uploaded_files, file_weights=None):
                 # 新文件，使用图片数量作为码数
                 rewarded_count = st.session_state.data_manager.update_scores_with_rewards(
                     nicknames, times, uploaded_file.name, image_counts, 
-                    base_score, reward_count, reward_multiplier
+                    base_score, reward_count, reward_multiplier, names
                 )
                 new_files_count += 1
             
@@ -436,6 +441,20 @@ def main():
             st.session_state.reward_count = 0  
         if 'reward_multiplier' not in st.session_state:
             st.session_state.reward_multiplier = 1.5
+        if 'score_group_by' not in st.session_state:
+            st.session_state.score_group_by = 'nickname'
+        
+        # 积分统计方式选择
+        score_group_by = st.selectbox(
+            "积分统计方式",
+            options=['nickname', 'name'],
+            format_func=lambda x: '按昵称积分' if x == 'nickname' else '按姓名积分',
+            index=0 if st.session_state.score_group_by == 'nickname' else 1,
+            help="按昵称：每个昵称独立统计；按姓名：同一姓名下的所有昵称积分合并"
+        )
+        if score_group_by != st.session_state.score_group_by:
+            st.session_state.score_group_by = score_group_by
+            st.rerun()
         
         # 基础积分设置
         base_score = st.number_input(

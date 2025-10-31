@@ -10,9 +10,14 @@ import io
 
 
 class ExcelProcessor:
-    # 常见的昵称/姓名列名关键词
+    # 常见的昵称列名关键词
     NICKNAME_KEYWORDS = [
-        '昵称', '姓名'
+        '昵称'
+    ]
+    
+    # 常见的姓名列名关键词
+    NAME_KEYWORDS = [
+        '姓名', '真实姓名', '名字', '用户名'
     ]
     
     # 常见的时间列名关键词
@@ -57,6 +62,32 @@ class ExcelProcessor:
                 text_count = sum(1 for x in sample_data if isinstance(x, str) and len(str(x).strip()) > 0)
                 if text_count / len(sample_data) > 0.7:  # 70%以上是文本
                     return first_col
+        
+        return None
+    
+    def find_name_column(self, df: pd.DataFrame) -> Optional[str]:
+        """
+        自动查找姓名列
+        
+        Args:
+            df: pandas DataFrame
+            
+        Returns:
+            姓名列名，如果找不到返回None
+        """
+        columns = df.columns.tolist()
+        
+        # 精确匹配
+        for keyword in self.NAME_KEYWORDS:
+            for col in columns:
+                if keyword == str(col).strip():
+                    return col
+        
+        # 模糊匹配
+        for keyword in self.NAME_KEYWORDS:
+            for col in columns:
+                if keyword in str(col):
+                    return col
         
         return None
     
@@ -175,7 +206,6 @@ class ExcelProcessor:
             
             # 统计每行的图片数量
             nickname_image_count = {}
-            debug_info = {}  # 临时调试信息
             
             for row_idx in range(openpyxl_header_row + 1, ws.max_row + 1):
                 # 获取昵称
@@ -198,22 +228,11 @@ class ExcelProcessor:
                     if cell.hyperlink is not None:
                         image_count += 1
                 
-                # 记录调试信息
-                if nickname not in debug_info:
-                    debug_info[nickname] = []
-                debug_info[nickname].append(f"第{row_idx}行: {image_count}张")
-                
                 # 如果昵称已存在，累加图片数（同一个人在多行的图片数相加）
                 if nickname in nickname_image_count:
                     nickname_image_count[nickname] += image_count
                 else:
                     nickname_image_count[nickname] = image_count
-            
-            # 打印调试信息（只显示有多行的昵称）
-            print(f"\n=== 文件 {file_name} 的图片统计 ===")
-            for nickname, details in debug_info.items():
-                if len(details) > 1:  # 只显示出现多次的昵称
-                    print(f"  {nickname}: {', '.join(details)} → 总计: {nickname_image_count[nickname]}张")
             
             wb.close()
             return nickname_image_count
@@ -222,16 +241,16 @@ class ExcelProcessor:
             # 如果统计失败，返回空字典（后续会使用默认码数1）
             return {}
     
-    def extract_nicknames_and_times_from_file(self, file_content, file_name: str) -> Tuple[List[str], List[str], List[int], str]:
+    def extract_nicknames_and_times_from_file(self, file_content, file_name: str) -> Tuple[List[str], List[str], List[str], List[int], str]:
         """
-        从Excel文件内容中提取昵称、提交时间和图片数量（码数）
+        从Excel文件内容中提取昵称、姓名、提交时间和图片数量（码数）
         
         Args:
             file_content: 文件内容（bytes或file-like对象）
             file_name: 文件名
             
         Returns:
-            (昵称列表, 提交时间列表, 图片数量列表, 错误信息)
+            (昵称列表, 姓名列表, 提交时间列表, 图片数量列表, 错误信息)
         """
         try:
             # 重置文件指针（如果是file-like对象）
@@ -245,10 +264,10 @@ class ExcelProcessor:
             elif file_name.endswith('.xls'):
                 df = pd.read_excel(file_content, engine='xlrd', header=0)
             else:
-                return [], [], [], f"不支持的文件格式: {file_name}"
+                return [], [], [], [], f"不支持的文件格式: {file_name}"
             
             if df.empty:
-                return [], [], [], f"文件为空: {file_name}"
+                return [], [], [], [], f"文件为空: {file_name}"
             
             # 查找昵称列
             nickname_column = self.find_nickname_column(df)
@@ -275,38 +294,46 @@ class ExcelProcessor:
             if nickname_column is None:
                 # 返回可用列名供用户参考
                 available_columns = ", ".join(df.columns.tolist())
-                return [], [], [], f"未找到昵称列，可用列名: {available_columns}"
+                return [], [], [], [], f"未找到昵称列，可用列名: {available_columns}"
+            
+            # 查找姓名列（可选）
+            name_column = self.find_name_column(df)
             
             # 查找时间列
             time_column = self.find_time_column(df)
             
-            # 提取昵称和时间数据
+            # 提取昵称、姓名和时间数据
             nicknames_raw = df[nickname_column].tolist()
+            names_raw = df[name_column].tolist() if name_column else [""] * len(nicknames_raw)
             times_raw = df[time_column].tolist() if time_column else [None] * len(nicknames_raw)
             
             # 统计图片数量（码数）
             nickname_image_count = self.count_images_in_excel(file_content, file_name, header_row)
             
-            # 清理和去重，同时保持昵称、时间和图片数量的对应关系
+            # 清理和去重，同时保持昵称、姓名、时间和图片数量的对应关系
             nicknames_clean = []
+            names_clean = []
             times_clean = []
             image_counts = []
             seen = set()
             
-            for nickname, time_val in zip(nicknames_raw, times_raw):
-                clean_name = self.clean_nickname(nickname)
-                if clean_name and clean_name not in seen and len(clean_name) > 0:
-                    nicknames_clean.append(clean_name)
+            for nickname, name, time_val in zip(nicknames_raw, names_raw, times_raw):
+                clean_nickname = self.clean_nickname(nickname)
+                if clean_nickname and clean_nickname not in seen and len(clean_nickname) > 0:
+                    clean_name = self.clean_nickname(name) if name and str(name) != 'nan' else ""
+                    
+                    nicknames_clean.append(clean_nickname)
+                    names_clean.append(clean_name)
                     times_clean.append(str(time_val) if time_val is not None else "")
                     # 获取该昵称的图片数量，如果没有则默认为1
-                    image_count = nickname_image_count.get(clean_name, 1)
+                    image_count = nickname_image_count.get(clean_nickname, 1)
                     image_counts.append(image_count)
-                    seen.add(clean_name)
+                    seen.add(clean_nickname)
             
-            return nicknames_clean, times_clean, image_counts, ""
+            return nicknames_clean, names_clean, times_clean, image_counts, ""
             
         except Exception as e:
-            return [], [], [], f"处理文件 {file_name} 时出错: {str(e)}"
+            return [], [], [], [], f"处理文件 {file_name} 时出错: {str(e)}"
     
     def extract_nicknames_from_file(self, file_content, file_name: str) -> Tuple[List[str], str]:
         """
@@ -319,7 +346,7 @@ class ExcelProcessor:
         Returns:
             (昵称列表, 错误信息)
         """
-        nicknames, _, _, error = self.extract_nicknames_and_times_from_file(file_content, file_name)
+        nicknames, _, _, _, error = self.extract_nicknames_and_times_from_file(file_content, file_name)
         return nicknames, error
     
     def batch_process_files(self, uploaded_files) -> Tuple[List[Tuple[str, List[str]]], List[str]]:

@@ -95,7 +95,7 @@ class DataManager:
     
     def update_scores_with_rewards(self, nicknames: List[str], times: List[str], file_name: str = "", 
                                  weight: Union[int, List[int]] = 1, base_score: float = 1.0, 
-                                 reward_count: int = 0, reward_multiplier: float = 1.5):
+                                 reward_count: int = 0, reward_multiplier: float = 1.5, names: List[str] = None):
         """
         更新昵称积分（支持基于时间的奖励机制和每个昵称不同的码数）
         
@@ -107,6 +107,7 @@ class DataManager:
             base_score: 基础积分（默认为1.0）
             reward_count: 奖励人数（默认为0，不启用奖励）
             reward_multiplier: 奖励倍数（默认为1.5）
+            names: 姓名列表（可选，用于按姓名分组）
         """
         data = self.load_data()
         
@@ -163,10 +164,15 @@ class DataManager:
             "rewarded_users": list(reward_users)
         }
         
+        # 处理names参数
+        if names is None:
+            names = [""] * len(nicknames)
+        
         # 为每个昵称增加积分
         for idx, nickname in enumerate(nicknames):
             if nickname.strip():
                 nickname = nickname.strip()
+                user_name = names[idx].strip() if idx < len(names) else ""
                 
                 # 获取该昵称的实际码数
                 user_weight = weights[idx]
@@ -179,6 +185,9 @@ class DataManager:
                     user_points = reward_multiplier * user_basic_points
                 
                 if nickname in data["records"]:
+                    # 更新姓名（如果提供了新的姓名）
+                    if user_name and user_name != "":
+                        data["records"][nickname]["name"] = user_name
                     data["records"][nickname]["score"] += user_points
                     data["records"][nickname]["files"].append({
                         "file_name": file_name,
@@ -190,6 +199,7 @@ class DataManager:
                     })
                 else:
                     data["records"][nickname] = {
+                        "name": user_name,  # 保存姓名
                         "score": user_points,
                         "files": [{
                             "file_name": file_name,
@@ -281,24 +291,57 @@ class DataManager:
         
         self.save_data(data)
     
-    def get_leaderboard(self) -> List[Dict]:
+    def get_leaderboard(self, group_by: str = "nickname") -> List[Dict]:
         """
         获取积分排行榜
         
+        Args:
+            group_by: 分组方式，"nickname"（按昵称）或 "name"（按姓名）
+        
         Returns:
-            按积分降序排列的昵称列表
+            按积分降序排列的列表
         """
         data = self.load_data()
-        leaderboard = []
         
-        for nickname, info in data["records"].items():
-            # 统计参与的不同文件数量（去重）
-            unique_files = set(file_record["file_name"] for file_record in info["files"])
-            leaderboard.append({
-                "nickname": nickname,
-                "score": info["score"],
-                "participation_count": len(unique_files)  # 参与接龙次数：参与的不同文件数量
-            })
+        if group_by == "name":
+            # 按姓名分组
+            name_groups = {}
+            for nickname, info in data["records"].items():
+                user_name = info.get("name", "")
+                if not user_name or user_name == "":
+                    user_name = nickname  # 如果没有姓名，使用昵称
+                
+                if user_name not in name_groups:
+                    name_groups[user_name] = {
+                        "score": 0,
+                        "files": [],
+                        "nicknames": []
+                    }
+                
+                name_groups[user_name]["score"] += info["score"]
+                name_groups[user_name]["files"].extend(info["files"])
+                name_groups[user_name]["nicknames"].append(nickname)
+            
+            # 构建排行榜
+            leaderboard = []
+            for name, group_info in name_groups.items():
+                unique_files = set(file_record["file_name"] for file_record in group_info["files"])
+                leaderboard.append({
+                    "nickname": name,  # 显示姓名
+                    "score": group_info["score"],
+                    "participation_count": len(unique_files)
+                })
+        else:
+            # 按昵称（原逻辑）
+            leaderboard = []
+            for nickname, info in data["records"].items():
+                # 统计参与的不同文件数量（去重）
+                unique_files = set(file_record["file_name"] for file_record in info["files"])
+                leaderboard.append({
+                    "nickname": nickname,
+                    "score": info["score"],
+                    "participation_count": len(unique_files)  # 参与接龙次数：参与的不同文件数量
+                })
         
         # 按积分降序排列
         leaderboard.sort(key=lambda x: x["score"], reverse=True)
