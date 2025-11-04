@@ -571,24 +571,59 @@ def main():
                     st.session_state.show_clear_confirm = False
                     st.rerun()
         
-        if st.button("📁 下载我的数据", help="下载当前会话的所有积分记录"):
-            try:
-                # 导出用户数据
-                user_data = st.session_state.data_manager.export_user_data()
+        # 数据导出功能
+        st.subheader("📥 下载数据")
+        
+        try:
+            # 导出JSON格式
+            user_data = st.session_state.data_manager.export_user_data()
+            
+            # 创建下载文件名
+            download_filename_json = f"我的打卡统计_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+            
+            st.download_button(
+                label="📁 下载JSON格式",
+                data=user_data,
+                file_name=download_filename_json,
+                mime="application/json",
+                help="下载JSON格式的积分数据"
+            )
+            
+            # 导出CSV格式
+            score_group_by = st.session_state.get('score_group_by', 'nickname')
+            leaderboard = st.session_state.data_manager.get_leaderboard(group_by=score_group_by)
+            
+            if leaderboard:
+                # 创建DataFrame
+                df = pd.DataFrame(leaderboard)
                 
-                # 创建下载文件名
-                download_filename = f"我的打卡统计_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+                # 根据选择的方式设置列名
+                first_column_name = '姓名' if score_group_by == 'name' else '昵称'
+                
+                # 准备导出的数据
+                export_df = df[['nickname', 'score', 'participation_count']].copy()
+                export_df.columns = [first_column_name, '积分', '参与接龙次数']
+                export_df.index = range(1, len(export_df) + 1)  # 从1开始的排名
+                export_df.index.name = '排名'
+                
+                # 转换为CSV
+                csv_data = export_df.to_csv(encoding='utf-8-sig')  # 使用utf-8-sig以支持Excel中文显示
+                
+                # 创建CSV文件名
+                download_filename_csv = f"我的打卡统计_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
                 
                 st.download_button(
-                    label="📁 点击下载",
-                    data=user_data,
-                    file_name=download_filename,
-                    mime="application/json",
-                    help="下载JSON格式的积分数据"
+                    label="📊 下载CSV格式",
+                    data=csv_data.encode('utf-8-sig'),
+                    file_name=download_filename_csv,
+                    mime="text/csv",
+                    help="下载CSV格式的积分排行榜（可用Excel打开）"
                 )
+            else:
+                st.info("暂无数据可导出")
                 
-            except Exception as e:
-                st.error(f"导出数据失败: {str(e)}")
+        except Exception as e:
+            st.error(f"导出数据失败: {str(e)}")
         
         st.markdown("---")
         
@@ -609,50 +644,57 @@ def main():
                 import json
                 backup_data = json.loads(file_content.decode('utf-8'))
                 
-                # 验证备份文件格式
-                required_fields = ["records", "last_updated", "total_files_processed"]
-                missing_fields = [field for field in required_fields if field not in backup_data]
+                # 验证备份文件格式（支持新旧两种格式）
+                # 新格式：records_by_nickname, records_by_name
+                # 旧格式：records
+                is_new_format = "records_by_nickname" in backup_data or "records_by_name" in backup_data
+                is_old_format = "records" in backup_data
                 
-                if missing_fields:
-                    st.error(f"❌ 备份文件格式错误，缺少字段：{', '.join(missing_fields)}")
+                if not is_new_format and not is_old_format:
+                    st.error(f"❌ 备份文件格式错误，缺少必要的记录字段（需要 records_by_nickname/records_by_name 或 records）")
+                elif not backup_data.get("processed_files") and not is_old_format:
+                    st.error(f"❌ 备份文件格式错误，缺少字段：processed_files")
                 else:
-                   
+                    # 如果是旧格式，转换为新格式
+                    if is_old_format and not is_new_format:
+                        # 将旧格式的 records 转换为新格式
+                        old_records = backup_data.get("records", {})
+                        backup_data["records_by_nickname"] = old_records
+                        # 如果没有姓名数据，records_by_name 为空字典
+                        backup_data["records_by_name"] = backup_data.get("records_by_name", {})
+                        # 移除旧字段
+                        if "records" in backup_data:
+                            del backup_data["records"]
+                    
+                    # 确保必要字段存在
+                    if "records_by_nickname" not in backup_data:
+                        backup_data["records_by_nickname"] = {}
+                    if "records_by_name" not in backup_data:
+                        backup_data["records_by_name"] = {}
+                    if "processed_files" not in backup_data:
+                        backup_data["processed_files"] = {}
+                    
+                    # 显示数据概览
                     with st.expander("📊 数据概览", expanded=True):
                         col1, col2 = st.columns(2)
                         with col1:
-                            st.metric("参与人数", len(backup_data.get('records', {})))
-                        with col2:
-                            st.metric("处理文件数", backup_data.get('total_files_processed', 0))
-                    
-                    # 导入按钮
-                    if st.button("📥 导入上传数据", type="primary", key="import_upload"):
-                        try:
-                            # 导入前先备份当前数据
-                            current_backup = st.session_state.data_manager.backup_data()
-                            st.info(f"当前数据已备份到: {current_backup}")
-                            
-                            # 临时保存上传的文件
-                            import tempfile
-                            import os
-                            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as temp_file:
-                                json.dump(backup_data, temp_file, ensure_ascii=False, indent=2)
-                                temp_path = temp_file.name
-                            
-                            # 执行导入
-                            if st.session_state.data_manager.import_data(temp_path):
-                                st.success("🎉 数据导入成功！页面将自动刷新...")
-                                # 清理临时文件
-                                os.unlink(temp_path)
-                                # 清空上传文件状态，重置上传模块
-                                if 'backup_uploader' in st.session_state:
-                                    del st.session_state['backup_uploader']
-                                st.rerun()
+                            # 统计参与人数（优先使用新格式）
+                            if is_new_format:
+                                nickname_count = len(backup_data.get('records_by_nickname', {}))
+                                name_count = len(backup_data.get('records_by_name', {}))
+                                st.metric("昵称记录数", nickname_count)
+                                if name_count > 0:
+                                    st.metric("姓名记录数", name_count)
                             else:
-                                st.error("❌ 数据导入失败")
-                                os.unlink(temp_path)
-                                
-                        except Exception as e:
-                            st.error(f"❌ 导入过程出错：{str(e)}")
+                                st.metric("参与人数", len(backup_data.get('records', {})))
+                        with col2:
+                            processed_count = len(backup_data.get('processed_files', {}))
+                            st.metric("处理文件数", processed_count)
+                    
+                    # 导入数据
+                    st.session_state.data_manager.save_data(backup_data)
+                    st.success("✅ 数据导入成功！")
+                    st.rerun()
                     
             except json.JSONDecodeError:
                 st.error("❌ 文件格式错误，请确保是有效的JSON格式")
