@@ -571,59 +571,24 @@ def main():
                     st.session_state.show_clear_confirm = False
                     st.rerun()
         
-        # 数据导出功能
-        st.subheader("📥 下载数据")
-        
-        try:
-            # 导出JSON格式
-            user_data = st.session_state.data_manager.export_user_data()
-            
-            # 创建下载文件名
-            download_filename_json = f"我的打卡统计_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-            
-            st.download_button(
-                label="📁 下载JSON格式",
-                data=user_data,
-                file_name=download_filename_json,
-                mime="application/json",
-                help="下载JSON格式的积分数据"
-            )
-            
-            # 导出CSV格式
-            score_group_by = st.session_state.get('score_group_by', 'nickname')
-            leaderboard = st.session_state.data_manager.get_leaderboard(group_by=score_group_by)
-            
-            if leaderboard:
-                # 创建DataFrame
-                df = pd.DataFrame(leaderboard)
+        if st.button("📁 下载我的数据", help="下载当前会话的所有积分记录"):
+            try:
+                # 导出用户数据
+                user_data = st.session_state.data_manager.export_user_data()
                 
-                # 根据选择的方式设置列名
-                first_column_name = '姓名' if score_group_by == 'name' else '昵称'
-                
-                # 准备导出的数据
-                export_df = df[['nickname', 'score', 'participation_count']].copy()
-                export_df.columns = [first_column_name, '积分', '参与接龙次数']
-                export_df.index = range(1, len(export_df) + 1)  # 从1开始的排名
-                export_df.index.name = '排名'
-                
-                # 转换为CSV
-                csv_data = export_df.to_csv(encoding='utf-8-sig')  # 使用utf-8-sig以支持Excel中文显示
-                
-                # 创建CSV文件名
-                download_filename_csv = f"我的打卡统计_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+                # 创建下载文件名
+                download_filename = f"我的打卡统计_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
                 
                 st.download_button(
-                    label="📊 下载CSV格式",
-                    data=csv_data.encode('utf-8-sig'),
-                    file_name=download_filename_csv,
-                    mime="text/csv",
-                    help="下载CSV格式的积分排行榜（可用Excel打开）"
+                    label="📁 点击下载",
+                    data=user_data,
+                    file_name=download_filename,
+                    mime="application/json",
+                    help="下载JSON格式的积分数据"
                 )
-            else:
-                st.info("暂无数据可导出")
                 
-        except Exception as e:
-            st.error(f"导出数据失败: {str(e)}")
+            except Exception as e:
+                st.error(f"导出数据失败: {str(e)}")
         
         st.markdown("---")
         
