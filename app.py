@@ -75,6 +75,20 @@ def display_leaderboard():
         df = df[['nickname', 'score']]
         df.columns = [first_column_name, '积分']
     
+    # 准备CSV下载数据（在布局之前准备，避免编码问题）
+    csv_df = df.copy().reset_index()  # 将排名作为一列
+    # 根据是否有参与接龙次数来设置列名
+    if '参与接龙次数' in csv_df.columns:
+        csv_df.columns = ['排名', first_column_name, '积分', '参与接龙次数']
+    else:
+        csv_df.columns = ['排名', first_column_name, '积分']
+    # 使用StringIO确保编码正确处理
+    csv_buffer = io.StringIO()
+    csv_df.to_csv(csv_buffer, index=False)
+    csv_string = csv_buffer.getvalue()
+    # 确保使用utf-8-sig编码（Excel兼容）
+    csv_data = csv_string.encode('utf-8-sig')
+    
     # 使用列布局：左侧排行榜，右侧预留空间
     col1, col2 = st.columns([1, 1])  # 1:1的比例，各占50%宽度
     
@@ -84,22 +98,14 @@ def display_leaderboard():
         with col_title:
             st.subheader("📊 积分排行榜")
         with col_btn:
-            # 准备CSV下载数据（重置索引以确保排名列被包含）
-            csv_df = df.copy().reset_index()  # 将排名作为一列
-            # 根据是否有参与接龙次数来设置列名
-            if '参与接龙次数' in csv_df.columns:
-                csv_df.columns = ['排名', first_column_name, '积分', '参与接龙次数']
-            else:
-                csv_df.columns = ['排名', first_column_name, '积分']
-            csv_data = csv_df.to_csv(index=False, encoding='utf-8-sig')
-            
             st.download_button(
                 label="📥 下载积分榜",
-                data=csv_data.encode('utf-8-sig'),
+                data=csv_data,
                 file_name=f"积分排行榜_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv",
+                mime="text/csv;charset=utf-8",
                 help="下载CSV格式的排行榜（可用Excel打开）",
-                key=f"download_csv_{score_group_by}"
+                key=f"download_csv_{score_group_by}",
+                use_container_width=True
             )
         
         # 显示排行榜（左侧）
