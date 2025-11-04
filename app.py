@@ -79,14 +79,36 @@ def display_leaderboard():
     col1, col2 = st.columns([1, 1])  # 1:1的比例，各占50%宽度
     
     with col1:
-        st.subheader("📊 积分排行榜")
+        # 标题和下载按钮在同一行
+        col_title, col_btn = st.columns([4, 1])
+        with col_title:
+            st.subheader("📊 积分排行榜")
+        with col_btn:
+            # 准备CSV下载数据（重置索引以确保排名列被包含）
+            csv_df = df.copy().reset_index()  # 将排名作为一列
+            # 根据是否有参与接龙次数来设置列名
+            if '参与接龙次数' in csv_df.columns:
+                csv_df.columns = ['排名', first_column_name, '积分', '参与接龙次数']
+            else:
+                csv_df.columns = ['排名', first_column_name, '积分']
+            csv_data = csv_df.to_csv(index=False, encoding='utf-8-sig')
+            
+            st.download_button(
+                label="📥 CSV",
+                data=csv_data.encode('utf-8-sig'),
+                file_name=f"积分排行榜_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                mime="text/csv",
+                help="下载CSV格式的排行榜（可用Excel打开）",
+                key=f"download_csv_{score_group_by}"
+            )
+        
         # 显示排行榜（左侧）
         st.dataframe(
-        df,
-        use_container_width=True,
-        hide_index=True,
-        height=600
-    )
+            df,
+            use_container_width=True,
+            hide_index=True,  # 显示时隐藏索引
+            height=600
+        )
 
     with col2:
         st.subheader("📊 已处理文件列表")
