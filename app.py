@@ -94,7 +94,7 @@ def display_leaderboard():
             csv_data = csv_df.to_csv(index=False, encoding='utf-8-sig')
             
             st.download_button(
-                label="📥 CSV",
+                label="📥 下载积分榜",
                 data=csv_data.encode('utf-8-sig'),
                 file_name=f"积分排行榜_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 mime="text/csv",
